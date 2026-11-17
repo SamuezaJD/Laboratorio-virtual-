@@ -1,0 +1,3965 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BioLab 3D — Cromosomas Politénicos de Drosophila melanogaster</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js r128 CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-glass: rgba(15, 23, 42, 0.86);
+      --border-glass: rgba(56, 189, 248, 0.25);
+    }
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+      background-color: #060b16;
+      color: #f1f5f9;
+    }
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    #lab-canvas-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    canvas#three-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      outline: none;
+    }
+    .glass-panel {
+      background: var(--bg-glass);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border-glass);
+      box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.6);
+    }
+    .glass-panel-subtle {
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.5);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(56, 189, 248, 0.4);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(56, 189, 248, 0.7);
+    }
+    /* Ocular Circular Mask & Vignette */
+    .ocular-viewport-wrapper {
+      position: relative;
+      width: min(62vh, 62vw);
+      height: min(62vh, 62vw);
+      border-radius: 50%;
+      overflow: hidden;
+      border: 10px solid #1e293b;
+      box-shadow:
+        0 0 0 6px #0f172a,
+        0 0 60px rgba(0, 0, 0, 0.95),
+        inset 0 0 55px rgba(0, 0, 0, 0.92);
+      background: #0a0a0c;
+      cursor: grab;
+    }
+    .ocular-viewport-wrapper:active {
+      cursor: grabbing;
+    }
+    .ocular-reticle {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      box-shadow: inset 0 0 48px 18px rgba(0, 0, 0, 0.85);
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.04); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .animate-pulse-subtle {
+      animation: pulse-ring 2.4s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="relative select-none">
+
+  <!-- ==================== 3D SCENE CONTAINER ==================== -->
+  <div id="lab-canvas-container">
+    <canvas id="three-canvas"></canvas>
+  </div>
+
+  <!-- ==================== FLOATING 3D OBJECT TOOLTIP ==================== -->
+  <div id="floating-tooltip" class="fixed z-30 pointer-events-none hidden transition-opacity duration-150 px-3.5 py-2.5 rounded-xl glass-panel max-w-xs">
+    <div class="flex items-center gap-2">
+      <span id="tooltip-badge" class="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+      <span id="tooltip-title" class="font-bold text-sm text-white">Instrumento</span>
+    </div>
+    <p id="tooltip-desc" class="text-xs text-slate-300 mt-1 leading-relaxed"></p>
+    <div id="tooltip-state" class="mt-1.5 text-[11px] font-mono-code text-sky-300 bg-sky-950/70 px-2 py-0.5 rounded border border-sky-700/40 inline-block"></div>
+  </div>
+
+  <!-- ==================== TOP NAVIGATION & PROGRESS BAR ==================== -->
+  <header class="fixed top-0 left-0 right-0 z-20 px-4 pt-3 pointer-events-none flex flex-col gap-2">
+    <div class="glass-panel rounded-2xl px-4 py-2.5 pointer-events-auto flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand & Mode -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-sm md:text-base tracking-tight text-white">BioLab 3D <span class="text-sky-400 font-normal">| Citogenética de <em>Drosophila melanogaster</em></span></h1>
+            <span id="mode-badge" class="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Modo Guiado</span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">Práctica de Cromosomas Politénicos de Glándulas Salivales (Protocolo de Squash en Orceína Aceto-Láctica)</p>
+        </div>
+      </div>
+
+      <!-- Progress & Score -->
+      <div class="flex items-center gap-4 flex-1 max-w-md mx-2">
+        <div class="w-full">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300 font-medium">Progreso de la Práctica (<span id="step-counter-text">Paso 1/14</span>)</span>
+            <span id="progress-percent-text" class="text-sky-400 font-mono-code font-bold">0%</span>
+          </div>
+          <div class="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+            <div id="progress-bar-fill" class="h-full bg-gradient-to-r from-sky-500 via-cyan-400 to-emerald-400 transition-all duration-500" style="width: 7%;"></div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 bg-slate-900/90 border border-amber-500/40 px-3 py-1.5 rounded-xl shrink-0" title="Puntuación científica acumulada">
+          <svg class="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+          </svg>
+          <span id="score-display" class="font-mono-code font-bold text-sm text-amber-300">0 pts</span>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <button id="btn-toggle-mode" class="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600/60 transition flex items-center gap-1.5" title="Alternar entre Modo Guiado y Exploración Libre">
+          <span>Modo Libre / Guiado</span>
+        </button>
+        <button id="btn-open-codex" class="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-indigo-950/80 hover:bg-indigo-900 text-indigo-200 border border-indigo-500/40 transition flex items-center gap-1.5">
+          <span>📚 Base Científica</span>
+        </button>
+        <button id="btn-open-notebook" class="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-teal-950/80 hover:bg-teal-900 text-teal-200 border border-teal-500/40 transition flex items-center gap-1.5">
+          <span>📝 Cuaderno (<span id="obs-count-badge">0</span>)</span>
+        </button>
+        <button id="btn-open-quiz" class="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-amber-950/80 hover:bg-amber-900 text-amber-200 border border-amber-500/40 transition flex items-center gap-1.5">
+          <span>🎓 Evaluación</span>
+        </button>
+        <button id="btn-export-zip" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600/90 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5" title="Descargar proyecto completo para Visual Studio Code + Vite en formato .ZIP">
+          <span>📦 Exportar ZIP (VS Code)</span>
+        </button>
+        <button id="btn-reset-lab" class="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-500/40 transition" title="Reiniciar práctica desde cero">
+          <span>↺ Reiniciar</span>
+        </button>
+        <button id="btn-main-menu" class="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600/50 transition" title="Abrir menú principal">
+          <span>☰ Menú</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Immediate Notification Toast Banner -->
+    <div id="toast-container" class="self-center pointer-events-none flex flex-col items-center gap-1.5 max-w-xl w-full"></div>
+  </header>
+
+  <!-- ==================== LEFT PANEL: INSTRUCTIONS, GUIDE & CAMERA PRESETS ==================== -->
+  <aside id="left-hud-panel" class="fixed top-20 left-4 z-20 w-80 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-7.5rem)] overflow-y-auto flex flex-col gap-3 pointer-events-none pr-1">
+    <!-- Current Step & Guide Card -->
+    <div class="glass-panel rounded-2xl p-4 pointer-events-auto flex flex-col gap-3">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex items-center gap-2.5">
+          <!-- Virtual Guide Avatar -->
+          <div id="guide-avatar" class="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 p-0.5 shrink-0">
+            <div class="w-full h-full rounded-full bg-slate-900 flex items-center justify-center text-lg" title="Dra. Elena Bridges — Guía de Citogenética">
+              👩‍🔬
+            </div>
+          </div>
+          <div>
+            <span id="step-stage-tag" class="text-[10px] font-mono-code uppercase tracking-wider px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">Etapa 1 / 14</span>
+            <h2 id="step-title" class="font-bold text-sm text-white mt-0.5">Presentación de la Práctica</h2>
+          </div>
+        </div>
+        <button id="btn-toggle-guide" class="text-[11px] text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded bg-slate-800/70" title="Mostrar/Ocultar consejos del personaje guía">
+          Guía: ON
+        </button>
+      </div>
+
+      <p id="step-instruction" class="text-xs text-slate-200 leading-relaxed bg-slate-900/60 p-3 rounded-xl border border-slate-700/60"></p>
+
+      <!-- Guide scientific note -->
+      <div id="guide-dialogue-box" class="text-[11px] text-cyan-200/90 bg-cyan-950/40 border-l-2 border-cyan-400 pl-2.5 py-1.5 rounded-r-lg italic"></div>
+
+      <!-- Step Action / Hint controls -->
+      <div class="flex items-center justify-between gap-2 pt-1">
+        <button id="btn-request-hint" class="px-3 py-1.5 rounded-xl text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition flex items-center gap-1">
+          <span>💡 Pista contextual</span>
+        </button>
+        <button id="btn-step-action" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow-md shadow-sky-500/20">
+          Confirmar y Continuar →
+        </button>
+      </div>
+
+      <!-- Hint Box (Hidden by default) -->
+      <div id="hint-display-box" class="hidden text-xs bg-amber-950/70 border border-amber-500/40 text-amber-200 p-2.5 rounded-xl"></div>
+    </div>
+
+    <!-- Camera Presets & Navigation Card -->
+    <div class="glass-panel-subtle rounded-2xl p-3 pointer-events-auto">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Vistas de Cámara 3D</span>
+        <span class="text-[10px] text-slate-400">Clic + arrastrar | Rueda: Zoom</span>
+      </div>
+      <div class="grid grid-cols-2 gap-1.5">
+        <button data-cam="overview" class="cam-preset-btn px-2.5 py-1.5 rounded-lg text-xs bg-slate-800/90 hover:bg-sky-900/60 text-slate-200 border border-slate-700 transition text-left flex items-center gap-1.5">
+          <span>🏠</span> <span>Vista General</span>
+        </button>
+        <button data-cam="prep" class="cam-preset-btn px-2.5 py-1.5 rounded-lg text-xs bg-slate-800/90 hover:bg-sky-900/60 text-slate-200 border border-slate-700 transition text-left flex items-center gap-1.5">
+          <span>🧪</span> <span>Zona Preparación</span>
+        </button>
+        <button data-cam="reagents" class="cam-preset-btn px-2.5 py-1.5 rounded-lg text-xs bg-slate-800/90 hover:bg-sky-900/60 text-slate-200 border border-slate-700 transition text-left flex items-center gap-1.5">
+          <span>🧫</span> <span>Bandeja Reactivos</span>
+        </button>
+        <button data-cam="microscope" class="cam-preset-btn px-2.5 py-1.5 rounded-lg text-xs bg-slate-800/90 hover:bg-sky-900/60 text-slate-200 border border-slate-700 transition text-left flex items-center gap-1.5">
+          <span>🔬</span> <span>Vista Ocular</span>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ==================== FLOATING POPUP MODAL: INCUBATION & SQUASH CONTROL ==================== -->
+  <div id="special-action-backdrop" class="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div id="special-action-widget" class="w-full max-w-md glass-panel rounded-3xl p-6 pointer-events-auto flex flex-col gap-3.5 border-2 border-cyan-400 shadow-2xl shadow-cyan-500/40">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <span class="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></span>
+          <span id="widget-title" class="text-sm font-bold uppercase tracking-wider text-cyan-300">Ventana Emergente de Operación</span>
+        </div>
+        <span id="widget-status" class="text-xs font-mono-code px-2.5 py-0.5 rounded-lg bg-slate-900 text-sky-300 border border-sky-500/40">En curso</span>
+      </div>
+      <p id="widget-desc" class="text-xs text-slate-200 leading-relaxed"></p>
+      <!-- Dynamic inner content (Squash pressure bar or Staining timer) -->
+      <div id="widget-controls" class="flex flex-col gap-3 mt-1"></div>
+    </div>
+  </div>
+
+  <!-- ==================== RIGHT PANEL: SAMPLE STATUS & BADGES ==================== -->
+  <aside id="right-hud-panel" class="fixed top-20 right-4 z-20 w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-7.5rem)] overflow-y-auto hidden lg:flex flex-col gap-3 pointer-events-none">
+    <!-- Sample Preparation State Monitor -->
+    <div class="glass-panel rounded-2xl p-4 pointer-events-auto">
+      <div class="flex items-center justify-between mb-2.5">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-sky-400">Estado de la Preparación</h3>
+        <span id="prep-quality-pill" class="text-[10px] font-mono-code px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Sin iniciar</span>
+      </div>
+      <div class="space-y-1.5 text-xs" id="sample-checklist">
+        <!-- Populated dynamically by UIManager -->
+      </div>
+      <!-- Held tool indicator -->
+      <div class="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between">
+        <span class="text-[11px] text-slate-400">Instrumento activo:</span>
+        <span id="active-tool-label" class="text-xs font-semibold text-amber-300 font-mono-code">Ninguno (Mano libre)</span>
+      </div>
+      <button id="btn-drop-tool" class="mt-2 w-full py-1 rounded-lg text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hidden">
+        Devolver instrumento a su lugar (Clic derecho / ESC)
+      </button>
+    </div>
+
+    <!-- Unlocked Learning Badges -->
+    <div class="glass-panel-subtle rounded-2xl p-3.5 pointer-events-auto">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-[11px] font-bold uppercase tracking-wider text-amber-400">Insignias Científicas</h3>
+        <span id="badges-counter" class="text-[11px] font-mono-code text-slate-400">0 / 6</span>
+      </div>
+      <div id="badges-grid" class="grid grid-cols-3 gap-2">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+  </aside>
+
+  <!-- ==================== BOTTOM PANEL: INTERACTIVE INVENTORY & QUICK ACTIONS ==================== -->
+  <footer id="bottom-inventory-bar" class="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-auto max-w-[96vw]">
+    <div class="glass-panel rounded-2xl px-4 py-2.5 flex items-center gap-2 overflow-x-auto">
+      <div class="pr-2 border-r border-slate-700/80 shrink-0 hidden sm:block">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-sky-400">Instrumental 3D</div>
+        <div class="text-[10px] text-slate-400">Clic en escena o inventario</div>
+      </div>
+      <div id="inventory-slots" class="flex items-center gap-2">
+        <!-- Populated dynamically with the 8 interactive lab items + drop zones -->
+      </div>
+    </div>
+  </footer>
+
+  <!-- ==================== MICROSCOPE OCULAR VIEW OVERLAY ==================== -->
+  <section id="microscope-overlay" class="fixed inset-0 z-30 bg-slate-950/95 backdrop-blur-xl hidden flex-col lg:flex-row items-center justify-between p-4 lg:p-8 gap-6">
+    <!-- Left Column: Ocular Scientific Info & Structure Identification Challenges -->
+    <div class="glass-panel rounded-2xl p-5 w-full lg:w-96 flex flex-col gap-3 max-h-[90vh] overflow-y-auto order-2 lg:order-1">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+        <div>
+          <span class="text-[10px] font-mono-code uppercase tracking-wider text-sky-400">Microscopía Óptica de Campo Claro</span>
+          <h2 class="text-base font-bold text-white">Observación Citogenética</h2>
+        </div>
+        <button id="btn-exit-microscope" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 transition">
+          Salir (ESC)
+        </button>
+      </div>
+
+      <!-- Authenticity & Scientific Representation Notice -->
+      <div class="bg-indigo-950/60 border border-indigo-500/40 rounded-xl p-2.5 text-[11px] text-indigo-200 leading-relaxed">
+        <strong>Nota Metodológica:</strong> Esta vista emplea una <em>representación citogenética vectorial sintética</em> fundamentada en el mapa de cromosomas politénicos de <strong>C.B. Bridges (1935)</strong> para <em>D. melanogaster</em>. No constituye una microfotografía experimental cruda.
+      </div>
+
+      <!-- Preparation validation alert inside ocular -->
+      <div id="ocular-prep-warning" class="hidden bg-amber-950/80 border border-amber-500/50 rounded-xl p-3 text-xs text-amber-200"></div>
+
+      <!-- Structure Identification Challenge List -->
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Reto de Identificación Estructural</span>
+          <span id="id-challenge-progress" class="text-xs font-mono-code text-emerald-300">0 / 5</span>
+        </div>
+        <p class="text-[11px] text-slate-300 mb-2">
+          Explora la preparación a <strong>40x</strong> o <strong>100x</strong> con buen enfoque y haz clic directamente sobre los marcadores o regiones del cromosoma en el ocular:
+        </p>
+        <div id="ocular-structures-list" class="space-y-1.5 text-xs">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Selected Structure Detail Card -->
+      <div id="ocular-selected-structure" class="bg-slate-900/90 border border-sky-500/40 rounded-xl p-3 hidden">
+        <div class="flex items-center justify-between">
+          <h4 id="struct-detail-title" class="font-bold text-xs text-sky-300">Estructura</h4>
+          <span id="struct-detail-locus" class="text-[10px] font-mono-code text-amber-300">Locus</span>
+        </div>
+        <p id="struct-detail-desc" class="text-[11px] text-slate-300 mt-1 leading-relaxed"></p>
+        <button id="btn-record-structure-obs" class="mt-2 w-full py-1.5 rounded-lg text-xs font-semibold bg-teal-600 hover:bg-teal-500 text-white transition">
+          + Registrar en Cuaderno de Observaciones
+        </button>
+      </div>
+    </div>
+
+    <!-- Center Column: Circular Ocular Viewport Canvas -->
+    <div class="flex flex-col items-center justify-center flex-1 order-1 lg:order-2">
+      <!-- Top Ocular HUD Telemetry -->
+      <div class="flex items-center gap-3 mb-3 glass-panel-subtle px-4 py-1.5 rounded-full text-xs">
+        <span>Aumento Total: <strong id="ocular-mag-text" class="text-sky-400 font-mono-code">100x (Obj. 10x)</strong></span>
+        <span class="text-slate-600">|</span>
+        <span>Nitidez: <strong id="ocular-focus-status" class="text-amber-400 font-mono-code">Desenfocado</strong></span>
+        <span class="text-slate-600">|</span>
+        <span>Coordenadas Platina: <strong id="ocular-xy-text" class="text-slate-300 font-mono-code">X: 0.0, Y: 0.0</strong></span>
+      </div>
+
+      <!-- Circular Viewport -->
+      <div id="ocular-viewport-wrapper" class="ocular-viewport-wrapper">
+        <canvas id="ocular-canvas" width="750" height="750" class="w-full h-full block"></canvas>
+        <div class="ocular-reticle"></div>
+      </div>
+
+      <div class="mt-2.5 text-[11px] text-slate-400 flex items-center gap-4">
+        <span>🖱️ Arrastrar en el ocular o usar flechas: Desplazar platina XY</span>
+        <span>⌨️ Teclas <kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700">W</kbd>/<kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700">S</kbd>: Enfoque</span>
+      </div>
+    </div>
+
+    <!-- Right Column: Microscope Controls (Objectives, Focus, Stage XY, Labels) -->
+    <div class="glass-panel rounded-2xl p-5 w-full lg:w-80 flex flex-col gap-4 order-3">
+      <h3 class="text-xs font-bold uppercase tracking-wider text-sky-400 border-b border-slate-800 pb-2">Controles del Microscopio</h3>
+
+      <!-- Revolving Nosepiece Objectives -->
+      <div>
+        <label class="text-xs font-semibold text-slate-300 block mb-2">Revólver de Objetivos</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-mag="10" class="mag-btn py-2 px-2 rounded-xl border text-center transition flex flex-col items-center gap-0.5 bg-sky-500/20 border-sky-400 text-white">
+            <span class="w-3 h-1.5 rounded-full bg-amber-400"></span>
+            <span class="font-bold text-sm font-mono-code">10x</span>
+            <span class="text-[10px] text-slate-300">Panorámico</span>
+          </button>
+          <button data-mag="40" class="mag-btn py-2 px-2 rounded-xl border text-center transition flex flex-col items-center gap-0.5 bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800">
+            <span class="w-3 h-1.5 rounded-full bg-sky-400"></span>
+            <span class="font-bold text-sm font-mono-code">40x</span>
+            <span class="text-[10px] text-slate-400">Seco Fuerte</span>
+          </button>
+          <button data-mag="100" class="mag-btn py-2 px-2 rounded-xl border text-center transition flex flex-col items-center gap-0.5 bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800">
+            <span class="w-3 h-1.5 rounded-full bg-slate-100"></span>
+            <span class="font-bold text-sm font-mono-code">100x</span>
+            <span class="text-[10px] text-slate-400">Inmersión</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Coarse & Fine Focus -->
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300 font-medium">Tornillo Macrométrico (Grueso)</span>
+            <span id="coarse-val-label" class="font-mono-code text-sky-300">50</span>
+          </div>
+          <input id="slider-coarse-focus" type="range" min="0" max="100" step="1" value="30" class="w-full accent-sky-400 cursor-pointer" />
+        </div>
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300 font-medium">Tornillo Micrométrico (Fino)</span>
+            <span id="fine-val-label" class="font-mono-code text-cyan-300">0</span>
+          </div>
+          <input id="slider-fine-focus" type="range" min="-25" max="25" step="0.5" value="-8" class="w-full accent-cyan-400 cursor-pointer" />
+        </div>
+        <button id="btn-auto-focus-assist" class="w-full py-1.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 transition">
+          🎯 Asistente de Enfoque Óptimo
+        </button>
+      </div>
+
+      <!-- Condenser Illumination -->
+      <div>
+        <div class="flex justify-between text-xs mb-1">
+          <span class="text-slate-300 font-medium">Diafragma e Iluminación LED</span>
+          <span id="light-val-label" class="font-mono-code text-amber-300">85%</span>
+        </div>
+        <input id="slider-illumination" type="range" min="20" max="120" step="1" value="85" class="w-full accent-amber-400 cursor-pointer" />
+      </div>
+
+      <!-- XY Mechanical Stage Controls -->
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-semibold text-slate-300">Carro Móvil de la Platina (XY)</span>
+          <button id="btn-center-stage" class="text-[11px] text-sky-400 hover:underline">Centrar</button>
+        </div>
+        <div class="grid grid-cols-3 gap-1.5 w-36 mx-auto">
+          <div></div>
+          <button data-pan="0,25" class="stage-pan-btn py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs border border-slate-700">▲</button>
+          <div></div>
+          <button data-pan="25,0" class="stage-pan-btn py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs border border-slate-700">◀</button>
+          <button id="btn-reset-pan" class="py-1.5 bg-slate-900 hover:bg-slate-800 rounded-lg text-[10px] font-mono-code border border-slate-700 text-sky-400">0,0</button>
+          <button data-pan="-25,0" class="stage-pan-btn py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs border border-slate-700">▶</button>
+          <div></div>
+          <button data-pan="0,-25" class="stage-pan-btn py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs border border-slate-700">▼</button>
+          <div></div>
+        </div>
+      </div>
+
+      <!-- Labels & Cytogenetic Map Overlay Toggles -->
+      <div class="pt-2 border-t border-slate-800 flex flex-col gap-2">
+        <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
+          <span>Mostrar etiquetas citogenéticas</span>
+          <input id="chk-ocular-labels" type="checkbox" checked class="accent-sky-400 w-4 h-4 rounded" />
+        </label>
+        <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
+          <span>Mostrar retícula micrométrica</span>
+          <input id="chk-ocular-grid" type="checkbox" checked class="accent-sky-400 w-4 h-4 rounded" />
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== MODAL: MAIN MENU & WELCOME ==================== -->
+  <div id="modal-main-menu" class="fixed inset-0 z-40 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="glass-panel rounded-3xl max-w-4xl w-full p-6 md:p-8 border border-sky-500/30 max-h-[92vh] overflow-y-auto">
+      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+        <div>
+          <span class="text-xs font-mono-code uppercase tracking-widest text-sky-400 bg-sky-950/80 px-3 py-1 rounded-full border border-sky-500/30">
+            Simulador Web 3D • Biología Molecular y Citogenética
+          </span>
+          <h1 class="text-2xl md:text-3xl font-extrabold text-white mt-2">
+            Cromosomas Politénicos de <em>Drosophila melanogaster</em>
+          </h1>
+          <p class="text-sm text-slate-300 mt-1">
+            Preparación por aplastamiento (<em>Squash</em>), tinción con Orceína Aceto-Láctica y análisis citogenético en microscopio óptico.
+          </p>
+        </div>
+        <button id="btn-start-practice" class="px-6 py-3.5 rounded-2xl font-bold text-sm bg-gradient-to-r from-sky-500 to-emerald-500 hover:from-sky-400 hover:to-emerald-400 text-slate-950 shadow-xl shadow-sky-500/25 transition shrink-0">
+          ▶ Iniciar Práctica en el Laboratorio 3D
+        </button>
+      </div>
+
+      <!-- Objectives & Scientific Context -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 my-6">
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4">
+          <div class="text-sky-400 font-bold text-xs uppercase tracking-wider mb-1.5">1. Fundamento Biológico</div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Las células de las glándulas salivales de larvas de 3er estadio de <em>D. melanogaster</em> experimentan <strong>10 rondas de endorreduplicación</strong> (~1024 cromátidas alineadas en sinapsis somática), formando cromosomas gigantes visibles en interfase.
+          </p>
+        </div>
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4">
+          <div class="text-emerald-400 font-bold text-xs uppercase tracking-wider mb-1.5">2. Protocolo Experimental</div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Disección en solución Ringer (NaCl 0.7%), fijación ácida (ácido acético 45%), tinción con <strong>orceína aceto-láctica al 2%</strong>, secado con papel filtro y aplastamiento vertical controlado (<em>Squash</em>).
+          </p>
+        </div>
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4">
+          <div class="text-amber-400 font-bold text-xs uppercase tracking-wider mb-1.5">3. Competencias y Evaluación</div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Manipulación de instrumental 3D, enfoque con objetivos de <strong>10x, 40x y 100x</strong>, identificación del cromocentro, brazos (X, 2L, 2R, 3L, 3R, 4) y anillos de transcripción (<em>puffs</em>).
+          </p>
+        </div>
+      </div>
+
+      <!-- Mode Selection & VS Code Export Info -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <button id="btn-menu-guided" class="px-4 py-2 rounded-xl text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-400">
+            ✓ Modo Guiado (14 Pasos Estructurados)
+          </button>
+          <button id="btn-menu-free" class="px-4 py-2 rounded-xl text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">
+            Modo Exploración Libre
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btn-menu-diagnostics" class="px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30">
+            🔍 Verificar Módulos (Self-Test)
+          </button>
+          <button id="btn-menu-download-zip" class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20">
+            📦 Descargar Proyecto Vite (.ZIP)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: SCIENTIFIC DATA & REFERENCES CODEX ==================== -->
+  <div id="modal-scientific-codex" class="fixed inset-0 z-40 bg-slate-950/85 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="glass-panel rounded-3xl max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+        <div>
+          <span class="text-xs font-mono-code text-indigo-400 uppercase">ScientificDataManager • Referencia Verificada</span>
+          <h2 class="text-xl font-bold text-white">Manual Científico y Protocolo Experimental Real vs. Simulado</h2>
+        </div>
+        <button data-close-modal="modal-scientific-codex" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200">✕ Cerrar</button>
+      </div>
+      <div id="codex-content" class="space-y-5 text-xs text-slate-300 leading-relaxed">
+        <!-- Populated dynamically by ScientificDataManager -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: OBSERVATION NOTEBOOK ==================== -->
+  <div id="modal-notebook" class="fixed inset-0 z-40 bg-slate-950/85 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="glass-panel rounded-3xl max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+        <div>
+          <span class="text-xs font-mono-code text-teal-400 uppercase">Cuaderno de Laboratorio</span>
+          <h2 class="text-xl font-bold text-white">Registro de Observaciones Citogenéticas</h2>
+        </div>
+        <button data-close-modal="modal-notebook" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200">✕ Cerrar</button>
+      </div>
+
+      <!-- Add custom observation form -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 mb-4">
+        <label class="block text-xs font-semibold text-slate-200 mb-1.5">Añadir anotación experimental al registro:</label>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <select id="obs-mag-select" class="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+            <option value="Preparación Macroscópica">Preparación en Mesa</option>
+            <option value="100x (Obj. 10x)">Aumento 100x (Obj. 10x)</option>
+            <option value="400x (Obj. 40x)">Aumento 400x (Obj. 40x)</option>
+            <option value="1000x (Obj. 100x)">Aumento 1000x (Obj. 100x)</option>
+          </select>
+          <input id="obs-note-input" type="text" placeholder="Ej. Se observa el cromocentro y un puff prominente en el brazo 3R..." class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-400" />
+          <button id="btn-save-obs" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs shrink-0">
+            + Guardar Registro
+          </button>
+        </div>
+      </div>
+
+      <!-- Recorded Observations Table -->
+      <div id="obs-list-container" class="space-y-2 max-h-80 overflow-y-auto"></div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: FINAL EVALUATION & RESULTS ==================== -->
+  <div id="modal-evaluation" class="fixed inset-0 z-40 bg-slate-950/85 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="glass-panel rounded-3xl max-w-3xl w-full p-6 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+        <div>
+          <span class="text-xs font-mono-code text-amber-400 uppercase">ProgressManager • Evaluación de Competencias</span>
+          <h2 class="text-xl font-bold text-white">Evaluación Final de Biología Molecular y Citogenética</h2>
+        </div>
+        <button data-close-modal="modal-evaluation" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200">✕ Cerrar</button>
+      </div>
+
+      <div id="quiz-questions-container" class="space-y-4"></div>
+
+      <!-- Final Results & Competencies Summary (Revealed on submit) -->
+      <div id="evaluation-summary-panel" class="hidden mt-6 bg-slate-900/95 border-2 border-emerald-500/50 rounded-2xl p-5"></div>
+
+      <div class="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
+        <button id="btn-reset-from-eval" class="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-950 hover:bg-rose-900 text-rose-200 border border-rose-500/40">
+          ↺ Reiniciar Toda la Práctica
+        </button>
+        <button id="btn-submit-evaluation" class="px-6 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 shadow-lg">
+          ✓ Calificar Evaluación y Generar Informe Final
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== APPLICATION ARCHITECTURE (10 INTEGRATED MODULES) ==================== -->
+  <script>
+    /**
+     * ============================================================================
+     * ARQUITECTURA INTEGRADA DEL LABORATORIO VIRTUAL 3D (10 MÓDULOS)
+     * 1. ScientificDataManager
+     * 2. ProgressManager
+     * 3. Interactable
+     * 4. DropZone
+     * 5. SamplePreparationManager
+     * 6. CameraController
+     * 7. MicroscopioController
+     * 8. InteractionManager
+     * 9. UIManager
+     * 10. LabManager (+ Empaquetador ZIP para Visual Studio Code / Vite)
+     * ============================================================================
+     */
+
+    // ============================================================================
+    // MÓDULO 1: ScientificDataManager
+    // Organiza la información biológica, parámetros reales vs. simulados,
+    // estructuras citogenéticas, preguntas de evaluación y referencias verificables.
+    // ============================================================================
+    class ScientificDataManager {
+      constructor() {
+        this.speciesInfo = {
+          scientificName: "Drosophila melanogaster",
+          tissue: "Glándulas salivales de larvas de tercer estadio tardío (3rd instar)",
+          diploidNumber: "2n = 8 (4 pares: Par I sexual X/Y, Pares II y III metacéntricos grandes, Par IV puntiforme)",
+          polyteneMechanism: "Endorreduplicación (endomitosis sin división nuclear ni citocinesis) durante 10 ciclos sucesivos, produciendo ~1,024 (2¹⁰) cromátidas hermanas alineadas en sinapsis somática estricta.",
+          typicalLength: "Hasta ~1,500–2,000 µm de longitud total descondensada, 100 veces mayor que los cromosomas metafásicos somáticos."
+        };
+
+        // Comparación explícita entre protocolo experimental real y simulación educativa
+        this.protocolComparison = [
+          {
+            stage: "1. Disección de glándulas salivales",
+            realProtocol: "Larvas de 3er estadio alimentadas a 18–22 °C se disecan bajo estereomicroscopio en solución salina fisiológica de Ringer (NaCl 0.7% p/v) o PBS frío usando dos agujas de tungsteno, extrayendo el par de glándulas salivales translúcidas y retirando el tejido adiposo.",
+            simulationAdaptation: "Muestra pre-disecada en vidrio de reloj con solución de Ringer (NaCl 0.7%) lista para transferencia controlada al portaobjetos."
+          },
+          {
+            stage: "2. Fijación y Tinción con Orceína Aceto-Láctica",
+            realProtocol: "Fijación inicial en ácido acético al 45% (1–2 min) seguida de tinción con Orceína al 1–2% disuelta en ácido acético glacial (45%) y ácido láctico (1:1) durante 10 a 15 minutos en cámara húmeda. La orceína se une selectivamente a las proteínas histónicas y regiones ricas en ADN condensado.",
+            simulationAdaptation: "Aplicación interactiva con micropipeta y temporizador acelerado de incubación que modela los 12 minutos del protocolo real en 3 segundos interactivos."
+          },
+          {
+            stage: "3. Montaje y Secado con Papel Filtro",
+            realProtocol: "Colocación del cubreobjetos (22×22 mm) en ángulo de 45° para evitar burbujas y absorción del exceso de colorante en los bordes con papel filtro Whatman N° 1.",
+            simulationAdaptation: "Colocación interactiva del cubreobjetos y aplicación del papel filtro absorbente con cambio cromático visible del papel."
+          },
+          {
+            stage: "4. Técnica de Aplastamiento (Squash)",
+            realProtocol: "Golpeteo suave con la punta roma de una aguja o varilla y presión vertical firme con el pulgar sobre papel filtro sin ningún desplazamiento lateral (el deslizamiento lateral enrolla y fragmenta los brazos cromosómicos).",
+            simulationAdaptation: "Control interactivo de presión vertical con medidor barométrico simulado (rango óptimo: 65–85 kPa equivalentes) y retroalimentación sobre la dispersión nuclear."
+          }
+        ];
+
+        // Estructuras cromosómicas observables en el microscopio interactivo
+        this.chromosomeStructures = [
+          {
+            id: "chromocenter",
+            name: "Cromocentro Heterocromático",
+            locus: "Región Pericentromérica Fusionada (α y β heterocromatina)",
+            x: 0,
+            y: 10,
+            radius: 38,
+            minMag: 10,
+            description: "Masa central densamente teñida donde se fusionan las regiones pericentroméricas sub-replicadas de todos los cromosomas (X, 2, 3 y 4). Contiene ADN altamente repetitivo (ADN satélite)."
+          },
+          {
+            id: "arm_x",
+            name: "Brazo Cromosómico X (División 1–20)",
+            locus: "Cromosoma I (Sexual) • Divisiones 1A–20F de Bridges",
+            x: -145,
+            y: -95,
+            radius: 36,
+            minMag: 40,
+            description: "Cromosoma acrocéntrico sexual. En machos (XY) presenta la mitad del grosor aparente pero duplica su tasa de transcripción por compensación de dosis mediada por el complejo MSL."
+          },
+          {
+            id: "puff_3r",
+            name: "Puff Cromosómico / Anillo de Balbiani",
+            locus: "Brazo 3R • Loci 74EF / 75B (Inducible por Ecdisona)",
+            x: 132,
+            y: -62,
+            radius: 34,
+            minMag: 40,
+            description: "Descondensación local reversible de las fibras de cromatina donde ocurre transcripción génica activa masiva de ARNm (genes tempranos inducidos por la hormona esteroidea 20-hidroxiecdisona)."
+          },
+          {
+            id: "bands_2l",
+            name: "Bandas Oscuras (Cromómeros Condensados)",
+            locus: "Brazo 2L • Divisiones 21A–40F",
+            x: -120,
+            y: 115,
+            radius: 34,
+            minMag: 40,
+            description: "Regiones ricas en cromatina compactada que absorben intensamente la orceína aceto-láctica. Contienen la mayor parte del ADN codificante y estructural (~85–90% de la masa de ADN politénico)."
+          },
+          {
+            id: "interbands_3l",
+            name: "Interbandas Claras y Cromosoma 4 Puntiforme",
+            locus: "Brazo 3L / Cromosoma IV (División 101–102)",
+            x: 72,
+            y: 130,
+            radius: 34,
+            minMag: 100,
+            description: "Las interbandas son fibrillas pálidas de eucromatina abierta con baja densidad de empaquetamiento y sitios promotores constitutivos; junto al cromocentro emerge también el pequeño cromosoma 4 puntiforme."
+          }
+        ];
+
+        // Los 14 pasos obligatorios de la práctica
+        this.steps = [
+          {
+            number: 1,
+            title: "1. Presentación y Objetivos de la Práctica",
+            instruction: "Bienvenido al Laboratorio de Citogenética. Revisa los objetivos de la sesión y pulsa el botón «Confirmar y Continuar» para comenzar con el reconocimiento del instrumental.",
+            guideNote: "Soy la Dra. Elena Bridges. Hoy prepararemos cromosomas politénicos gigantes de glándulas salivales de Drosophila melanogaster mediante la técnica clásica de Squash.",
+            hint: "Haz clic en el botón azul «Confirmar y Continuar →» en este panel para avanzar al Paso 2.",
+            requiresButton: true
+          },
+          {
+            number: 2,
+            title: "2. Identificación de Materiales e Instrumentos",
+            instruction: "Inspecciona al menos 3 instrumentos de la mesa pasando el cursor sobre ellos o haciendo clic para verificar sus propiedades científicas.",
+            guideNote: "Antes de manipular muestras biológicas, todo citogenetista verifica la concentración del colorante y el estado de los portaobjetos.",
+            hint: "Haz clic sobre el Portaobjetos, el Frasco de Tinción y la Muestra Biológica en la mesa 3D o en la barra inferior.",
+            requiresButton: false
+          },
+          {
+            number: 3,
+            title: "3. Organización: Colocar el Portaobjetos",
+            instruction: "Selecciona el Portaobjetos limpio (76×26 mm) y colócalo sobre la Zona de Preparación central de la mesa.",
+            guideNote: "El portaobjetos debe ubicarse en la alfombrilla de preparación iluminada antes de depositar las glándulas salivales.",
+            hint: "Haz clic en el Portaobjetos y luego haz clic en el recuadro brillante de la Zona de Preparación en el centro de la mesa.",
+            requiresButton: false
+          },
+          {
+            number: 4,
+            title: "4. Transferencia de la Muestra Biológica",
+            instruction: "Selecciona la Muestra Biológica (glándulas salivales de larva de 3er estadio disecadas en NaCl 0.7%) y deposítala sobre el portaobjetos en la Zona de Preparación.",
+            guideNote: "Las glándulas salivales ya fueron extraídas en solución de Ringer fría (0.7% NaCl) libre de cuerpos grasos.",
+            hint: "Selecciona la placa Petri con la Muestra Biológica y haz clic sobre la Zona de Preparación donde está el portaobjetos.",
+            requiresButton: false
+          },
+          {
+            number: 5,
+            title: "5. Aplicación del Reactivo de Tinción",
+            instruction: "Toma la Micropipeta, carga Orceína Aceto-Láctica al 2% haciendo clic en el Frasco de Tinción y aplícala sobre la muestra en la Zona de Preparación. Luego completa la incubación.",
+            guideNote: "La orceína aceto-láctica (2% en ácido acético 45% + ácido láctico) fija las proteínas nucleares y tiñe selectivamente las bandas cromosómicas.",
+            hint: "1) Clic en Pipeta → 2) Clic en Frasco de Tinción → 3) Clic en Zona de Preparación → 4) Pulsa «Completar Incubación» en el panel emergente.",
+            requiresButton: false
+          },
+          {
+            number: 6,
+            title: "6. Gestión de Residuos de Laboratorio",
+            instruction: "Descarta la punta usada de la pipeta y los restos titulares en el Recipiente para Residuos Biológicos (contenedor rojo a la derecha).",
+            guideNote: "Las buenas prácticas de bioseguridad exigen descartar las puntas en el contenedor rígido antes de montar el cubreobjetos.",
+            hint: "Con la pipeta activa (o haciendo clic directamente en el contenedor rojo de residuos), deposita el residuo en la Zona de Residuos.",
+            requiresButton: false
+          },
+          {
+            number: 7,
+            title: "7. Montaje con Cubreobjetos",
+            instruction: "Selecciona un Cubreobjetos (22×22 mm) y colócalo suavemente en ángulo de 45° sobre la muestra teñida en la Zona de Preparación.",
+            guideNote: "Descender el cubreobjetos progresivamente evita atrapar burbujas de aire sobre las glándulas teñidas.",
+            hint: "Haz clic en la caja de Cubreobjetos y luego en la Zona de Preparación.",
+            requiresButton: false
+          },
+          {
+            number: 8,
+            title: "8. Uso del Papel Filtro Absorbente",
+            instruction: "Selecciona el Papel Filtro Whatman y aplícalo sobre el montaje en la Zona de Preparación para absorber el exceso periférico de orceína aceto-láctica.",
+            guideNote: "Si dejamos exceso de colorante líquido, los núcleos se desplazarán fuera del cubreobjetos durante el aplastamiento.",
+            hint: "Selecciona el Papel Filtro blanco y haz clic sobre la Zona de Preparación.",
+            requiresButton: false
+          },
+          {
+            number: 9,
+            title: "9. Técnica de Aplastamiento (Squash)",
+            instruction: "Utiliza el Prensa-Squash / Aguja Histológica sobre la Zona de Preparación y ajusta la presión vertical dentro del rango óptimo (65–85 kPa) sin deslizamiento lateral.",
+            guideNote: "¡Paso crítico! La presión vertical rompe la envoltura nuclear y extiende los brazos cromosómicos en un solo plano focal.",
+            hint: "Selecciona el instrumento de Squash o usa el control deslizante del panel de operación especial hasta 75 kPa y pulsa «Ejecutar Squash Vertical».",
+            requiresButton: false
+          },
+          {
+            number: 10,
+            title: "10. Validación de Calidad de la Preparación",
+            instruction: "Verifica el índice de calidad del montaje (tinción, secado y presión de squash) y pulsa «Validar Preparación» para certificar el portaobjetos.",
+            guideNote: "Un squash óptimo presenta cromosomas bien extendidos, alto contraste banda/interbanda y ausencia de fragmentación.",
+            hint: "Pulsa el botón «Confirmar y Validar Preparación» en el panel izquierdo.",
+            requiresButton: true
+          },
+          {
+            number: 11,
+            title: "11. Traslado a la Platina del Microscopio",
+            instruction: "Recoge el Portaobjetos Preparado de la Zona de Preparación y colócalo sobre la Platina del Microscopio Óptico.",
+            guideNote: "Asegura el portaobjetos con las pinzas del carro mecánico XY del microscopio para centrar el tejido.",
+            hint: "Haz clic en el Portaobjetos de la Zona de Preparación y luego haz clic sobre la Platina del Microscopio.",
+            requiresButton: false
+          },
+          {
+            number: 12,
+            title: "12. Observación Microscópica (10x, 40x y 100x)",
+            instruction: "Abre la Vista Ocular haciendo clic en el Microscopio. Enfoca la muestra y examínala utilizando los tres objetivos: 10x, 40x y 100x.",
+            guideNote: "Comienza siempre en 10x para ubicar el núcleo politénico, pasa a 40x para resolver las bandas y usa 100x para detalles finos.",
+            hint: "Entra al microscopio, ajusta el tornillo macrométrico cerca de 50 y alterna por los botones 10x, 40x y 100x.",
+            requiresButton: false
+          },
+          {
+            number: 13,
+            title: "13. Identificación y Registro de Estructuras",
+            instruction: "En la vista del microscopio (a 40x o 100x enfocada), haz clic sobre al menos 3 estructuras cromosómicas (Cromocentro, Puff, Bandas, etc.) y regístralas en el Cuaderno.",
+            guideNote: "Identificar los puffs de transcripción y el patrón de bandas de Bridges es el corazón del análisis citogenético.",
+            hint: "Dentro de la vista ocular del microscopio, haz clic en los círculos indicadores sobre el cromosoma y pulsa «+ Registrar en Cuaderno».",
+            requiresButton: false
+          },
+          {
+            number: 14,
+            title: "14. Evaluación Final de Conocimientos",
+            instruction: "Abre el módulo de Evaluación Final, responde el cuestionario científico y genera tu informe de competencias adquiridas.",
+            guideNote: "¡Excelente trabajo experimental! Completa ahora la evaluación diagnóstica para obtener la certificación de la práctica.",
+            hint: "Haz clic en el botón «🎓 Evaluación» de la barra superior o en «Abrir Evaluación Final».",
+            requiresButton: true
+          }
+        ];
+
+        // Banco de preguntas científicas verificadas para la Evaluación Final
+        this.quizQuestions = [
+          {
+            id: "q1",
+            question: "1. ¿Cuál es el mecanismo celular responsable de la formación de los cromosomas politénicos gigantes en las glándulas salivales de Drosophila melanogaster?",
+            options: [
+              "Fusión sincitial de múltiples células epiteliales durante la metamorfosis pupal.",
+              "Endorreduplicación ( ~10 ciclos de replicación del ADN sin división nuclear ni citocinesis) con sinapsis somática de ~1024 cromátidas.",
+              "Amplificación exclusiva del ADN ribosomal mitocondrial inducida por choque térmico.",
+              "Detención permanente en anafase II meiótica con no-disyunción cromosómica."
+            ],
+            correctIndex: 1,
+            explanation: "Las células de las glándulas salivales experimentan endorreduplicación: el ADN se replica repetidamente en interfase sin mitosis, manteniendo ~1024 cromátidas hermanas y homólogas estrechamente pareadas."
+          },
+          {
+            id: "q2",
+            question: "2. ¿Qué significado funcional tienen los «Puffs» cromosómicos (o Anillos de Balbiani) observables a 40x y 100x?",
+            options: [
+              "Son artefactos de fractura mecánica provocados por exceso de ácido acético al 45%.",
+              "Representan telómeros fusionados que carecen de genes codificantes.",
+              "Son regiones de descondensación local de la cromatina donde ocurre transcripción activa de ARN (como genes inducidos por la hormona ecdisona).",
+              "Son depósitos de lípidos citoplasmáticos teñidos inespecíficamente por la orceína."
+            ],
+            correctIndex: 2,
+            explanation: "Los puffs corresponden a bandas cuyas fibras de cromatina se descondensan localmente para permitir el acceso de la ARN polimerasa II y una intensa síntesis de ARNm."
+          },
+          {
+            id: "q3",
+            question: "3. Durante la técnica de aplastamiento (Squash), ¿por qué debe aplicarse presión exclusivamente vertical evitando cualquier deslizamiento lateral del cubreobjetos?",
+            options: [
+              "Porque el desplazamiento lateral cizalla, enrolla y fragmenta mecánicamente los brazos cromosómicos impidiendo su mapeo citogenético.",
+              "Porque el roce lateral oxida instantáneamente la orceína aceto-láctica volviéndola incolora.",
+              "Porque el ácido láctico polimeriza el vidrio del cubreobjetos si se mueve horizontalmente.",
+              "Para evitar que los cromosomas entren en división mitótica espontánea."
+            ],
+            correctIndex: 0,
+            explanation: "El aplastamiento vertical aplana los núcleos en un mismo plano focal, mientras que el cizallamiento lateral enrolla y destruye la morfología de los brazos cromosómicos."
+          },
+          {
+            id: "q4",
+            question: "4. ¿Qué estructura citogenética une la base de los brazos cromosómicos X, 2L, 2R, 3L, 3R y 4 en los núcleos politénicos de D. melanogaster?",
+            options: [
+              "El quiasma meiótico terminal.",
+              "El cromocentro, formado por la coalescencia de la heterocromatina pericentromérica sub-replicada de todos los cromosomas.",
+              "El cuerpo polar del huso acromático.",
+              "La lámina fibrosa del aparato de Golgi."
+            ],
+            correctIndex: 1,
+            explanation: "En D. melanogaster, las regiones pericentroméricas ricas en heterocromatina constitutiva se sub-replican y se agregan en un único centro denso llamado cromocentro."
+          },
+          {
+            id: "q5",
+            question: "5. ¿Cuál es la función combinada del ácido acético al 45% y la orceína (1–2%) en el reactivo de tinción empleado?",
+            options: [
+              "Mantener vivas las células salivales para observar el movimiento flagelar en tiempo real.",
+              "Fijar rápidamente las nucleoproteínas coagulando la cromatina y teñir selectivamente las bandas condensadas con coloración rojizo-púrpura.",
+              "Disolver selectivamente el ADN dejando únicamente la envoltura nuclear intacta.",
+              "Incrementar el índice de refracción del aire para no usar objetivos de 40x."
+            ],
+            correctIndex: 1,
+            explanation: "El ácido acético fija y ablanda el tejido preservando la arquitectura cromosómica, mientras que la orceína tiñe con alta afinidad las bandas de cromatina condensada."
+          }
+        ];
+
+        // Bibliografía científica verificable
+        this.references = [
+          "Bridges, C. B. (1935). Salivary chromosome maps with a key to the banding of the chromosomes of Drosophila melanogaster. Journal of Heredity, 26(2), 60–64.",
+          "Painter, T. S. (1933). A new method for the study of chromosome rearrangements and the plotting of chromosome maps. Science, 78(2034), 585–586.",
+          "Ashburner, M. (1989). Drosophila: A Laboratory Manual. Cold Spring Harbor Laboratory Press, Cold Spring Harbor, NY. (Protocolos de citogenética de glándulas salivales).",
+          "Zhimulev, I. F. (1996). Morphology and structure of polytene chromosomes. Advances in Genetics, 34, 1–490.",
+          "Demerec, M., & Kaufmann, B. P. (1996). Drosophila Guide: Introduction to the Genetics and Cytology of Drosophila melanogaster (10th ed.). Carnegie Institution of Washington."
+        ];
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 2: ProgressManager
+    // Administra los objetivos de cada etapa, puntuación científica, insignias
+    // de aprendizaje, cuaderno de observaciones y calificación de la evaluación.
+    // ============================================================================
+    class ProgressManager {
+      constructor(scientificData) {
+        this.data = scientificData;
+        this.currentStep = 1;
+        this.maxSteps = this.data.steps.length;
+        this.score = 0;
+        this.guidedMode = true;
+        this.guideVisible = true;
+        this.inspectedItems = new Set();
+        this.observedMagnifications = new Set();
+        this.identifiedStructures = new Set();
+        this.observations = [];
+        this.quizAnswers = {};
+        this.quizSubmitted = false;
+
+        this.badges = [
+          { id: "explorer", title: "Inspector de Instrumental", icon: "🧰", desc: "Identificó los reactivos y materiales del laboratorio.", unlocked: false },
+          { id: "chemist", title: "Citoquímico Preciso", icon: "🧪", desc: "Aplicó tinción con Orceína Aceto-Láctica y gestionó residuos.", unlocked: false },
+          { id: "squash_master", title: "Maestro del Squash", icon: "🔬", desc: "Ejecutó un aplastamiento vertical óptimo sin cizallamiento.", unlocked: false },
+          { id: "optician", title: "Dominio Óptico 1000x", icon: "👁️", desc: "Enfocó y examinó la muestra en 10x, 40x y 100x.", unlocked: false },
+          { id: "bridges_heir", title: "Discípulo de Bridges", icon: "🧬", desc: "Identificó las estructuras clave de los cromosomas politénicos.", unlocked: false },
+          { id: "geneticist", title: "Genetista Certificado", icon: "🎓", desc: "Completó la evaluación final con excelencia científica.", unlocked: false }
+        ];
+      }
+
+      addScore(points, reason) {
+        this.score = Math.max(0, this.score + points);
+        if (window.labApp && window.labApp.ui) {
+          window.labApp.ui.updateScoreAndProgress();
+          if (reason) {
+            window.labApp.ui.showToast(`${points >= 0 ? '+' : ''}${points} pts — ${reason}`, points >= 0 ? "success" : "warning");
+          }
+        }
+      }
+
+      unlockBadge(badgeId) {
+        const badge = this.badges.find(b => b.id === badgeId);
+        if (badge && !badge.unlocked) {
+          badge.unlocked = true;
+          this.addScore(50, `Insignia desbloqueada: ${badge.title}`);
+          if (window.labApp && window.labApp.ui) {
+            window.labApp.ui.renderBadges();
+          }
+        }
+      }
+
+      addObservation(magnification, text, structureName = null) {
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        this.observations.unshift({
+          id: Date.now() + Math.random(),
+          time: timestamp,
+          magnification,
+          structure: structureName || "Observación general",
+          note: text
+        });
+        if (window.labApp && window.labApp.ui) {
+          window.labApp.ui.renderObservations();
+        }
+      }
+
+      advanceToStep(stepNumber) {
+        if (stepNumber > this.currentStep) {
+          this.currentStep = Math.min(this.maxSteps, stepNumber);
+          if (window.labApp && window.labApp.ui) {
+            window.labApp.ui.updateStepPanel();
+            window.labApp.ui.updateScoreAndProgress();
+          }
+        }
+      }
+
+      reset() {
+        this.currentStep = 1;
+        this.score = 0;
+        this.inspectedItems.clear();
+        this.observedMagnifications.clear();
+        this.identifiedStructures.clear();
+        this.observations = [];
+        this.quizAnswers = {};
+        this.quizSubmitted = false;
+        this.badges.forEach(b => (b.unlocked = false));
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 3: Interactable
+    // Define el comportamiento de cada instrumento o material 3D interactivo,
+    // su estado, posición original, resaltado visual y animaciones.
+    // ============================================================================
+    class Interactable {
+      constructor({ id, name, icon, description, stateText, meshGroup, homePosition, canPickUp = true, onInteract = null }) {
+        this.id = id;
+        this.name = name;
+        this.icon = icon;
+        this.description = description;
+        this.stateText = stateText || "Disponible";
+        this.meshGroup = meshGroup;
+        this.homePosition = homePosition.clone();
+        this.homeRotation = meshGroup.rotation.clone();
+        this.canPickUp = canPickUp;
+        this.onInteract = onInteract;
+        this.isHovered = false;
+        this.isSelected = false;
+
+        // Asociar referencia inversa en todos los hijos del grupo 3D para raycasting
+        this.meshGroup.userData.interactable = this;
+        this.meshGroup.traverse(child => {
+          if (child.isMesh) {
+            child.userData.interactable = this;
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+      }
+
+      setHighlight(active, colorHex = 0x38bdf8) {
+        this.isHovered = active;
+        this.meshGroup.traverse(child => {
+          if (child.isMesh && child.material && child.material.emissive) {
+            if (!child.userData.baseEmissive) {
+              child.userData.baseEmissive = child.material.emissive.clone();
+            }
+            if (active || this.isSelected) {
+              child.material.emissive.setHex(this.isSelected ? 0xf59e0b : colorHex);
+              child.material.emissiveIntensity = this.isSelected ? 0.55 : 0.35;
+            } else {
+              child.material.emissive.copy(child.userData.baseEmissive);
+              child.material.emissiveIntensity = 0;
+            }
+          }
+        });
+      }
+
+      returnHome() {
+        this.isSelected = false;
+        this.meshGroup.position.copy(this.homePosition);
+        this.meshGroup.rotation.copy(this.homeRotation);
+        this.setHighlight(false);
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 4: DropZone
+    // Valida la colocación de herramientas y materiales en zonas específicas
+    // (Zona de Preparación, Platina del Microscopio, Zona de Residuos).
+    // ============================================================================
+    class DropZone {
+      constructor({ id, name, description, position, mesh, acceptedIds, onDrop }) {
+        this.id = id;
+        this.name = name;
+        this.description = description;
+        this.position = position.clone();
+        this.mesh = mesh;
+        this.acceptedIds = acceptedIds || [];
+        this.onDrop = onDrop;
+
+        this.mesh.userData.dropZone = this;
+        this.mesh.traverse(child => {
+          if (child.isMesh) {
+            child.userData.dropZone = this;
+          }
+        });
+      }
+
+      setPulse(active, valid = true) {
+        this.mesh.traverse(child => {
+          if (child.isMesh && child.material && child.material.emissive) {
+            child.material.emissive.setHex(active ? (valid ? 0x10b981 : 0xf43f5e) : 0x0284c7);
+            child.material.emissiveIntensity = active ? 0.65 : 0.2;
+          }
+        });
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 5: SamplePreparationManager
+    // Gestiona la máquina de estados científica de la preparación de la muestra
+    // y actualiza la representación 3D del montaje en tiempo real.
+    // ============================================================================
+    class SamplePreparationManager {
+      constructor(progressManager, visualRefs) {
+        this.progress = progressManager;
+        this.visualRefs = visualRefs; // Referencias a mallas 3D dinámicas sobre el portaobjetos
+        this.reset();
+      }
+
+      reset() {
+        this.state = {
+          slidePlaced: false,
+          samplePlaced: false,
+          pipetteLoadedWithStain: false,
+          pipetteUsed: false,
+          stainApplied: false,
+          stainIncubated: false,
+          wasteDisposed: false,
+          coverslipPlaced: false,
+          filterBlotted: false,
+          squashPerformed: false,
+          squashPressure: 0, // kPa equivalentes (Óptimo: 65-85)
+          squashQuality: "none", // "optimal", "under", "over"
+          validated: false,
+          onMicroscopeStage: false
+        };
+        this.sync3DVisuals();
+      }
+
+      getQualityLabel() {
+        if (!this.state.slidePlaced) return "Sin iniciar";
+        if (!this.state.squashPerformed) return "En preparación";
+        if (this.state.squashQuality === "optimal") return "Óptima (98%)";
+        if (this.state.squashQuality === "under") return "Sub-aplastada (Núcleos densos)";
+        return "Sobre-aplastada (Brazos fragmentados)";
+      }
+
+      sync3DVisuals() {
+        if (!this.visualRefs) return;
+        const {
+          prepSlideGroup,
+          glandTissueMesh,
+          stainDropMesh,
+          mountedCoverslipMesh,
+          stageSlideGroup
+        } = this.visualRefs;
+
+        if (prepSlideGroup) {
+          prepSlideGroup.visible = this.state.slidePlaced && !this.state.onMicroscopeStage;
+        }
+        if (glandTissueMesh) {
+          glandTissueMesh.visible = this.state.samplePlaced;
+          // Escalar ligeramente horizontalmente cuando se realiza el squash
+          const squashScale = this.state.squashPerformed ? 1.85 : 1.0;
+          glandTissueMesh.scale.set(squashScale, this.state.squashPerformed ? 0.35 : 1.0, squashScale);
+        }
+        if (stainDropMesh) {
+          stainDropMesh.visible = this.state.stainApplied;
+          const mat = stainDropMesh.material;
+          if (mat) {
+            mat.opacity = this.state.filterBlotted ? 0.55 : 0.88;
+            mat.color.setHex(this.state.stainIncubated ? 0x881337 : 0xbe123c);
+          }
+          const dropScale = this.state.squashPerformed ? 1.6 : 1.0;
+          stainDropMesh.scale.set(dropScale, this.state.coverslipPlaced ? 0.25 : 1.0, dropScale);
+        }
+        if (mountedCoverslipMesh) {
+          mountedCoverslipMesh.visible = this.state.coverslipPlaced;
+        }
+        if (stageSlideGroup) {
+          stageSlideGroup.visible = this.state.onMicroscopeStage;
+        }
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 6: CameraController
+    // Controla la navegación orbital suave con el ratón/toque y las transiciones
+    // cinemáticas entre vistas predefinidas y la entrada al microscopio.
+    // ============================================================================
+    class CameraController {
+      constructor(camera, domElement) {
+        this.camera = camera;
+        this.domElement = domElement;
+
+        // Coordenadas esféricas alrededor del punto de mira (target)
+        this.target = new THREE.Vector3(0, 1.05, 0);
+        this.desiredTarget = new THREE.Vector3(0, 1.05, 0);
+
+        this.spherical = { radius: 4.1, phi: 1.02, theta: 0.12 };
+        this.desiredSpherical = { radius: 4.1, phi: 1.02, theta: 0.12 };
+
+        this.isDragging = false;
+        this.prevMouse = { x: 0, y: 0 };
+        this.enabled = true;
+
+        this.presets = {
+          overview: { target: new THREE.Vector3(0, 1.08, 0), radius: 4.15, phi: 1.02, theta: 0.08 },
+          prep: { target: new THREE.Vector3(0.0, 0.96, 0.25), radius: 1.75, phi: 0.72, theta: 0.0 },
+          reagents: { target: new THREE.Vector3(-1.05, 1.02, -0.05), radius: 1.95, phi: 0.86, theta: -0.35 },
+          microscope: { target: new THREE.Vector3(1.18, 1.34, -0.05), radius: 1.25, phi: 0.95, theta: 0.28 }
+        };
+
+        this.initEvents();
+        this.updateCameraImmediate();
+      }
+
+      initEvents() {
+        this.domElement.addEventListener("mousedown", e => {
+          if (!this.enabled || e.button !== 0) return;
+          this.isDragging = true;
+          this.prevMouse.x = e.clientX;
+          this.prevMouse.y = e.clientY;
+        });
+
+        window.addEventListener("mousemove", e => {
+          if (!this.enabled || !this.isDragging) return;
+          const dx = e.clientX - this.prevMouse.x;
+          const dy = e.clientY - this.prevMouse.y;
+          this.prevMouse.x = e.clientX;
+          this.prevMouse.y = e.clientY;
+
+          this.desiredSpherical.theta -= dx * 0.0055;
+          this.desiredSpherical.phi = Math.max(0.35, Math.min(1.42, this.desiredSpherical.phi - dy * 0.0055));
+        });
+
+        window.addEventListener("mouseup", () => {
+          this.isDragging = false;
+        });
+
+        this.domElement.addEventListener("wheel", e => {
+          if (!this.enabled) return;
+          e.preventDefault();
+          this.desiredSpherical.radius = Math.max(1.15, Math.min(6.2, this.desiredSpherical.radius + e.deltaY * 0.0025));
+        }, { passive: false });
+      }
+
+      transitionToPreset(presetName) {
+        const p = this.presets[presetName];
+        if (!p) return;
+        this.desiredTarget.copy(p.target);
+        this.desiredSpherical.radius = p.radius;
+        this.desiredSpherical.phi = p.phi;
+        this.desiredSpherical.theta = p.theta;
+      }
+
+      updateCameraImmediate() {
+        this.target.copy(this.desiredTarget);
+        this.spherical.radius = this.desiredSpherical.radius;
+        this.spherical.phi = this.desiredSpherical.phi;
+        this.spherical.theta = this.desiredSpherical.theta;
+        this.applySpherical();
+      }
+
+      applySpherical() {
+        const r = this.spherical.radius;
+        const sinPhi = Math.sin(this.spherical.phi);
+        const x = this.target.x + r * sinPhi * Math.sin(this.spherical.theta);
+        const y = this.target.y + r * Math.cos(this.spherical.phi);
+        const z = this.target.z + r * sinPhi * Math.cos(this.spherical.theta);
+        this.camera.position.set(x, y, z);
+        this.camera.lookAt(this.target);
+      }
+
+      update() {
+        const lerpFactor = 0.1;
+        this.target.lerp(this.desiredTarget, lerpFactor);
+        this.spherical.radius += (this.desiredSpherical.radius - this.spherical.radius) * lerpFactor;
+        this.spherical.phi += (this.desiredSpherical.phi - this.spherical.phi) * lerpFactor;
+        this.spherical.theta += (this.desiredSpherical.theta - this.spherical.theta) * lerpFactor;
+        this.applySpherical();
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 7: MicroscopioController
+    // Controla la vista ocular interactiva, objetivos (10x, 40x, 100x), enfoque
+    // macrométrico/micrométrico, platina XY y renderizado citogenético sintético.
+    // ============================================================================
+    class MicroscopioController {
+      constructor(scientificData, samplePrep, progress, turretMeshGroup) {
+        this.data = scientificData;
+        this.samplePrep = samplePrep;
+        this.progress = progress;
+        this.turretMeshGroup = turretMeshGroup;
+
+        this.isActive = false;
+        this.objective = 10; // 10, 40, 100
+        this.coarseFocus = 30; // Óptimo: 50
+        this.fineFocus = -8;   // Óptimo según objetivo: 10x -> 0, 40x -> 4, 100x -> -3
+        this.illumination = 85;
+        this.stageX = 0;
+        this.stageY = 0;
+        this.showLabels = true;
+        this.showGrid = true;
+        this.selectedStructure = null;
+
+        this.canvas = document.getElementById("ocular-canvas");
+        this.ctx = this.canvas.getContext("2d");
+
+        // Pre-generar patrón determinista de bandas e interbandas según el mapa de Bridges
+        this.armsGeometry = this.generatePolyteneArms();
+        this.initOcularInteractions();
+      }
+
+      generatePolyteneArms() {
+        // 5 brazos principales irradiando desde el cromocentro (X, 2L, 2R, 3L, 3R) + cromosoma 4 puntiforme
+        return [
+          {
+            name: "Brazo X (Div. 1–20)",
+            shortLabel: "X",
+            color: "#881337",
+            width: 24,
+            points: [
+              { x: 0, y: 10 },
+              { x: -45, y: -25 },
+              { x: -105, y: -55 },
+              { x: -145, y: -95 },
+              { x: -195, y: -135 },
+              { x: -235, y: -115 }
+            ],
+            puffIndex: -1
+          },
+          {
+            name: "Brazo 2L (Div. 21–40)",
+            shortLabel: "2L",
+            color: "#7f1d1d",
+            width: 27,
+            points: [
+              { x: 0, y: 10 },
+              { x: -50, y: 45 },
+              { x: -95, y: 85 },
+              { x: -120, y: 115 },
+              { x: -175, y: 165 },
+              { x: -225, y: 190 }
+            ],
+            puffIndex: -1
+          },
+          {
+            name: "Brazo 2R (Div. 41–60)",
+            shortLabel: "2R",
+            color: "#831843",
+            width: 27,
+            points: [
+              { x: 0, y: 10 },
+              { x: 25, y: -48 },
+              { x: 15, y: -115 },
+              { x: -15, y: -175 },
+              { x: 18, y: -230 }
+            ],
+            puffIndex: -1
+          },
+          {
+            name: "Brazo 3R (Div. 81–100 • Puff 74EF/75B)",
+            shortLabel: "3R",
+            color: "#701a75",
+            width: 28,
+            points: [
+              { x: 0, y: 10 },
+              { x: 65, y: -18 },
+              { x: 132, y: -62 }, // Puff / Balbiani ring locus
+              { x: 195, y: -95 },
+              { x: 245, y: -70 }
+            ],
+            puffIndex: 2
+          },
+          {
+            name: "Brazo 3L (Div. 61–80)",
+            shortLabel: "3L",
+            color: "#881337",
+            width: 27,
+            points: [
+              { x: 0, y: 10 },
+              { x: 45, y: 72 },
+              { x: 72, y: 130 },
+              { x: 135, y: 185 },
+              { x: 195, y: 215 }
+            ],
+            puffIndex: -1
+          },
+          {
+            name: "Cromosoma 4 (Div. 101–102)",
+            shortLabel: "4",
+            color: "#6b21a8",
+            width: 19,
+            points: [
+              { x: 0, y: 10 },
+              { x: 35, y: 28 },
+              { x: 58, y: 38 }
+            ],
+            puffIndex: -1
+          }
+        ];
+      }
+
+      initOcularInteractions() {
+        const wrapper = document.getElementById("ocular-viewport-wrapper");
+        let dragging = false;
+        let startX = 0;
+        let startY = 0;
+        let moved = false;
+
+        wrapper.addEventListener("mousedown", e => {
+          dragging = true;
+          moved = false;
+          startX = e.clientX;
+          startY = e.clientY;
+        });
+
+        window.addEventListener("mousemove", e => {
+          if (!dragging || !this.isActive) return;
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+          startX = e.clientX;
+          startY = e.clientY;
+
+          const speed = this.objective === 100 ? 0.45 : this.objective === 40 ? 0.75 : 1.2;
+          this.stageX = Math.max(-280, Math.min(280, this.stageX + dx * speed));
+          this.stageY = Math.max(-280, Math.min(280, this.stageY + dy * speed));
+          this.renderOcular();
+        });
+
+        window.addEventListener("mouseup", () => {
+          dragging = false;
+        });
+
+        // Clic para identificar estructuras cromosómicas
+        this.canvas.addEventListener("click", e => {
+          if (moved || !this.isActive) return;
+          this.handleStructureClick(e);
+        });
+      }
+
+      getScaleFactor() {
+        if (this.objective === 10) return 0.72;
+        if (this.objective === 40) return 1.48;
+        return 2.65; // 100x
+      }
+
+      getTargetFineFocus() {
+        if (this.objective === 10) return 0;
+        if (this.objective === 40) return 4;
+        return -3;
+      }
+
+      getFocusBlurAmount() {
+        const coarseDiff = Math.abs(this.coarseFocus - 50);
+        const fineDiff = Math.abs(this.fineFocus - this.getTargetFineFocus());
+        // A mayor aumento, menor profundidad de campo y mayor sensibilidad al desenfoque
+        const magMultiplier = this.objective === 100 ? 1.65 : this.objective === 40 ? 1.15 : 0.65;
+        return (coarseDiff * 0.48 + fineDiff * 0.36) * magMultiplier;
+      }
+
+      enterMicroscope() {
+        this.isActive = true;
+        document.getElementById("microscope-overlay").classList.remove("hidden");
+        document.getElementById("microscope-overlay").classList.add("flex");
+        this.checkFocusedExploration();
+        this.renderOcular();
+      }
+
+      exitMicroscope() {
+        this.isActive = false;
+        document.getElementById("microscope-overlay").classList.add("hidden");
+        document.getElementById("microscope-overlay").classList.remove("flex");
+        if (window.labApp && window.labApp.cameraController) {
+          window.labApp.cameraController.transitionToPreset("overview");
+        }
+      }
+
+      setObjective(mag) {
+        this.objective = Number(mag);
+        // Rotar el revólver 3D de objetivos en el microscopio de la escena
+        if (this.turretMeshGroup) {
+          const angle = this.objective === 10 ? 0 : this.objective === 40 ? (Math.PI * 2) / 3 : (Math.PI * 4) / 3;
+          this.turretMeshGroup.rotation.y = angle;
+        }
+        this.checkFocusedExploration();
+        this.renderOcular();
+      }
+
+      autoFocusAssist() {
+        this.coarseFocus = 50;
+        this.fineFocus = this.getTargetFineFocus();
+        document.getElementById("slider-coarse-focus").value = this.coarseFocus;
+        document.getElementById("slider-fine-focus").value = this.fineFocus;
+        document.getElementById("coarse-val-label").textContent = this.coarseFocus;
+        document.getElementById("fine-val-label").textContent = this.fineFocus;
+        this.checkFocusedExploration();
+        this.renderOcular();
+      }
+
+      checkFocusedExploration() {
+        const blur = this.getFocusBlurAmount();
+        if (this.samplePrep.state.onMicroscopeStage && blur < 2.5) {
+          this.progress.observedMagnifications.add(this.objective);
+          if (this.progress.observedMagnifications.size >= 3) {
+            this.progress.unlockBadge("optician");
+            if (this.progress.currentStep === 12) {
+              this.progress.advanceToStep(13);
+            }
+          }
+        }
+      }
+
+      handleStructureClick(event) {
+        if (!this.samplePrep.state.onMicroscopeStage) return;
+        const blur = this.getFocusBlurAmount();
+        if (blur > 4.5) {
+          window.labApp.ui.showToast("Enfoca primero la muestra usando los tornillos macrométrico y micrométrico antes de identificar estructuras.", "warning");
+          return;
+        }
+
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasX = ((event.clientX - rect.left) / rect.width) * this.canvas.width;
+        const canvasY = ((event.clientY - rect.top) / rect.height) * this.canvas.height;
+
+        const centerX = this.canvas.width / 2;
+        const centerY = this.canvas.height / 2;
+        const scale = this.getScaleFactor();
+
+        // Convertir clic de pantalla a coordenadas del cromosoma
+        const worldX = (canvasX - centerX) / scale - this.stageX;
+        const worldY = (canvasY - centerY) / scale - this.stageY;
+
+        let matched = null;
+        for (const struct of this.data.chromosomeStructures) {
+          const dist = Math.hypot(worldX - struct.x, worldY - struct.y);
+          if (dist <= struct.radius + 14) {
+            matched = struct;
+            break;
+          }
+        }
+
+        if (matched) {
+          if (this.objective < 40 && matched.minMag >= 40) {
+            window.labApp.ui.showToast(`Cambia al objetivo de 40x o 100x para resolver con claridad: ${matched.name}`, "info");
+          }
+          this.selectedStructure = matched;
+          if (!this.progress.identifiedStructures.has(matched.id)) {
+            this.progress.identifiedStructures.add(matched.id);
+            this.progress.addScore(35, `Estructura identificada: ${matched.name}`);
+            if (this.progress.identifiedStructures.size >= 3 && this.progress.currentStep === 13) {
+              this.progress.advanceToStep(14);
+            }
+            if (this.progress.identifiedStructures.size === this.data.chromosomeStructures.length) {
+              this.progress.unlockBadge("bridges_heir");
+            }
+          }
+          window.labApp.ui.updateOcularStructurePanel(matched);
+          this.renderOcular();
+        }
+      }
+
+      renderOcular() {
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const cx = w / 2;
+        const cy = h / 2;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // 1. Fondo de campo claro iluminado según el condensador LED
+        const lightFactor = this.illumination / 100;
+        const bgR = Math.min(255, Math.round(244 * lightFactor));
+        const bgG = Math.min(255, Math.round(241 * lightFactor));
+        const bgB = Math.min(255, Math.round(234 * lightFactor));
+        ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
+        ctx.fillRect(0, 0, w, h);
+
+        // Actualizar indicadores de telemetría
+        const totalMag = this.objective * 10;
+        document.getElementById("ocular-mag-text").textContent = `${totalMag}x (Obj. ${this.objective}x)`;
+        document.getElementById("ocular-xy-text").textContent = `X: ${(-this.stageX * 0.1).toFixed(1)}, Y: ${(this.stageY * 0.1).toFixed(1)}`;
+
+        const blur = this.getFocusBlurAmount();
+        const focusEl = document.getElementById("ocular-focus-status");
+        if (blur < 1.8) {
+          focusEl.textContent = "Óptimo (Enfocado)";
+          focusEl.className = "text-emerald-400 font-mono-code";
+        } else if (blur < 4.5) {
+          focusEl.textContent = "Parcial (Ajustar Fino)";
+          focusEl.className = "text-amber-400 font-mono-code";
+        } else {
+          focusEl.textContent = "Desenfocado";
+          focusEl.className = "text-rose-400 font-mono-code";
+        }
+
+        // Advertencia si el portaobjetos no está en la platina o tiene preparación defectuosa
+        const warningBox = document.getElementById("ocular-prep-warning");
+        if (!this.samplePrep.state.onMicroscopeStage) {
+          warningBox.classList.remove("hidden");
+          warningBox.innerHTML = "⚠️ <strong>Platina vacía:</strong> No se ha colocado el portaobjetos preparado sobre la platina del microscopio. Sal de la vista ocular y traslada el portaobjetos a la platina.";
+          this.drawReticleOnly(ctx, w, h, cx, cy);
+          return;
+        }
+
+        if (!this.samplePrep.state.stainApplied || !this.samplePrep.state.squashPerformed) {
+          warningBox.classList.remove("hidden");
+          warningBox.innerHTML = `⚠️ <strong>Preparación incompleta:</strong> ${!this.samplePrep.state.stainApplied ? 'Falta tinción con orceína aceto-láctica (bajo contraste).' : ''} ${!this.samplePrep.state.squashPerformed ? 'No se realizó el aplastamiento (Squash): los núcleos permanecen esféricos y superpuestos.' : ''}`;
+        } else if (this.samplePrep.state.squashQuality !== "optimal") {
+          warningBox.classList.remove("hidden");
+          warningBox.innerHTML = `ℹ️ <strong>Diagnóstico del Squash (${this.samplePrep.state.squashPressure} kPa):</strong> ${this.samplePrep.state.squashQuality === "under" ? 'Presión insuficiente: los brazos cromosómicos están parcialmente superpuestos.' : 'Exceso de presión: se observan fracturas mecánicas en algunos brazos.'}`;
+        } else {
+          warningBox.classList.add("hidden");
+        }
+
+        // 2. Renderizar contenido biológico con el filtro de desenfoque óptico
+        ctx.save();
+        ctx.filter = `blur(${Math.min(20, blur).toFixed(1)}px)`;
+        ctx.translate(cx, cy);
+        const scale = this.getScaleFactor();
+        ctx.scale(scale, scale);
+        ctx.translate(this.stageX, this.stageY);
+
+        // Halo citoplasmático de la célula de glándula salival aplastada
+        const cellGrad = ctx.createRadialGradient(0, 0, 40, 0, 0, 320);
+        cellGrad.addColorStop(0, "rgba(244, 195, 208, 0.32)");
+        cellGrad.addColorStop(0.75, "rgba(235, 175, 195, 0.14)");
+        cellGrad.addColorStop(1, "rgba(235, 175, 195, 0)");
+        ctx.fillStyle = cellGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, 310, 0, Math.PI * 2);
+        ctx.fill();
+
+        const contrastAlpha = this.samplePrep.state.stainApplied ? (this.samplePrep.state.stainIncubated ? 0.96 : 0.62) : 0.14;
+        const squashSpread = !this.samplePrep.state.squashPerformed ? 0.25 : this.samplePrep.state.squashQuality === "under" ? 0.58 : 1.0;
+
+        ctx.save();
+        ctx.scale(squashSpread, squashSpread);
+
+        // Dibujar cada brazo cromosómico politénico con bandas oscuras e interbandas claras
+        this.armsGeometry.forEach((arm, armIdx) => {
+          this.drawPolyteneArm(ctx, arm, contrastAlpha, armIdx);
+        });
+
+        // Dibujar el Cromocentro heterocromático central
+        ctx.save();
+        const chromoGrad = ctx.createRadialGradient(-4, 8, 5, 0, 10, 40);
+        chromoGrad.addColorStop(0, `rgba(76, 5, 25, ${contrastAlpha})`);
+        chromoGrad.addColorStop(0.7, `rgba(112, 26, 117, ${contrastAlpha * 0.9})`);
+        chromoGrad.addColorStop(1, `rgba(136, 19, 55, 0)`);
+        ctx.fillStyle = chromoGrad;
+        ctx.beginPath();
+        ctx.arc(0, 10, 38, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Textura granular de heterocromatina alfa/beta en el cromocentro
+        for (let i = 0; i < 28; i++) {
+          const ang = (i * 2.4) % (Math.PI * 2);
+          const rad = (i * 1.15) % 26;
+          ctx.fillStyle = `rgba(60, 4, 20, ${contrastAlpha * 0.85})`;
+          ctx.beginPath();
+          ctx.arc(Math.cos(ang) * rad, 10 + Math.sin(ang) * rad, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+
+        ctx.restore(); // Fin de escala squashSpread
+
+        // 3. Dibujar marcadores interactivos y etiquetas citogenéticas
+        if (this.samplePrep.state.squashPerformed) {
+          this.data.chromosomeStructures.forEach(struct => {
+            const isIdentified = this.progress.identifiedStructures.has(struct.id);
+            const isSelected = this.selectedStructure && this.selectedStructure.id === struct.id;
+
+            // Anillo interactivo
+            ctx.save();
+            ctx.strokeStyle = isSelected ? "#38bdf8" : isIdentified ? "#10b981" : "rgba(245, 158, 11, 0.85)";
+            ctx.lineWidth = 2.5 / scale;
+            ctx.setLineDash(isIdentified ? [] : [5 / scale, 4 / scale]);
+            ctx.beginPath();
+            ctx.arc(struct.x, struct.y, struct.radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            if (this.showLabels && blur < 4.5) {
+              ctx.font = `bold ${Math.max(10, Math.round(13 / Math.sqrt(scale)))}px Inter, sans-serif`;
+              const labelText = struct.name.split(" (")[0];
+              const metrics = ctx.measureText(labelText);
+              const pad = 5;
+              const boxW = metrics.width + pad * 2;
+              const boxH = 18;
+              const lx = struct.x - boxW / 2;
+              const ly = struct.y - struct.radius - 22;
+
+              ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+              ctx.fillRect(lx, ly, boxW, boxH);
+              ctx.strokeStyle = isIdentified ? "#10b981" : "#38bdf8";
+              ctx.lineWidth = 1 / scale;
+              ctx.setLineDash([]);
+              ctx.strokeRect(lx, ly, boxW, boxH);
+
+              ctx.fillStyle = "#f8fafc";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(labelText, struct.x, ly + boxH / 2);
+            }
+            ctx.restore();
+          });
+        }
+
+        ctx.restore(); // Fin de transformación de platina y filtro blur
+
+        // 4. Retícula micrométrica ocular y escala en micrómetros (µm)
+        this.drawReticleOnly(ctx, w, h, cx, cy);
+      }
+
+      drawPolyteneArm(ctx, arm, alpha, seed) {
+        const pts = arm.points;
+        const segments = 54;
+
+        // Interpolar curva suave a lo largo de los puntos del brazo cromosómico
+        const samples = [];
+        for (let i = 0; i <= segments; i++) {
+          const t = i / segments;
+          const scaledT = t * (pts.length - 1);
+          const idx = Math.min(pts.length - 2, Math.floor(scaledT));
+          const frac = scaledT - idx;
+          const p0 = pts[idx];
+          const p1 = pts[idx + 1];
+          const x = p0.x + (p1.x - p0.x) * frac;
+          const y = p0.y + (p1.y - p0.y) * frac;
+
+          // Calcular vector normal perpendicular al eje del brazo
+          const dx = p1.x - p0.x;
+          const dy = p1.y - p0.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const nx = -dy / len;
+          const ny = dx / len;
+
+          // Ensanchamiento local si hay un Puff cromosómico (Anillo de Balbiani)
+          let widthFactor = 1.0 - t * 0.22;
+          if (arm.puffIndex > 0) {
+            const puffT = arm.puffIndex / (pts.length - 1);
+            const distToPuff = Math.abs(t - puffT);
+            if (distToPuff < 0.16) {
+              const bulge = Math.cos((distToPuff / 0.16) * (Math.PI / 2));
+              widthFactor += bulge * 1.15;
+            }
+          }
+
+          samples.push({ x, y, nx, ny, halfW: (arm.width * widthFactor) / 2, t });
+        }
+
+        // Cuerpo de eucromatina base (interbandas claras)
+        ctx.save();
+        ctx.beginPath();
+        samples.forEach((s, i) => {
+          const px = s.x + s.nx * s.halfW;
+          const py = s.y + s.ny * s.halfW;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        for (let i = samples.length - 1; i >= 0; i--) {
+          const s = samples[i];
+          const px = s.x - s.nx * s.halfW;
+          const py = s.y - s.ny * s.halfW;
+          ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = `rgba(219, 142, 168, ${alpha * 0.65})`;
+        ctx.strokeStyle = `rgba(136, 19, 55, ${alpha * 0.7})`;
+        ctx.lineWidth = 1.4;
+        ctx.fill();
+        ctx.stroke();
+
+        // Bandas citogenéticas transversales (patrón determinista inspirado en Bridges)
+        samples.forEach((s, i) => {
+          if (i < 2 || i > samples.length - 2) return;
+          const patternVal = Math.sin(i * 1.7 + seed * 3.1) + Math.cos(i * 0.85);
+          // Si cae sobre el Puff, dibujar fibrillas de transcripción difusas en vez de banda densa
+          const isPuffZone = arm.puffIndex > 0 && Math.abs(s.t - arm.puffIndex / (pts.length - 1)) < 0.12;
+
+          if (isPuffZone) {
+            ctx.strokeStyle = `rgba(244, 63, 94, ${alpha * 0.45})`;
+            ctx.lineWidth = 2.6;
+            ctx.beginPath();
+            ctx.moveTo(s.x - s.nx * s.halfW * 1.05, s.y - s.ny * s.halfW * 1.05);
+            ctx.lineTo(s.x + s.nx * s.halfW * 1.05, s.y + s.ny * s.halfW * 1.05);
+            ctx.stroke();
+          } else if (patternVal > 0.15) {
+            const isDarkDoublet = patternVal > 1.05;
+            ctx.strokeStyle = isDarkDoublet
+              ? `rgba(76, 5, 25, ${alpha * 0.95})`
+              : `rgba(131, 24, 67, ${alpha * 0.8})`;
+            ctx.lineWidth = isDarkDoublet ? 3.2 : 1.7;
+            ctx.beginPath();
+            ctx.moveTo(s.x - s.nx * (s.halfW - 1), s.y - s.ny * (s.halfW - 1));
+            ctx.lineTo(s.x + s.nx * (s.halfW - 1), s.y + s.ny * (s.halfW - 1));
+            ctx.stroke();
+          }
+        });
+
+        ctx.restore();
+      }
+
+      drawReticleOnly(ctx, w, h, cx, cy) {
+        if (!this.showGrid) return;
+        ctx.save();
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.28)";
+        ctx.lineWidth = 1;
+
+        // Cruz filar central
+        ctx.beginPath();
+        ctx.moveTo(cx - 120, cy);
+        ctx.lineTo(cx + 120, cy);
+        ctx.moveTo(cx, cy - 120);
+        ctx.lineTo(cx, cy + 120);
+        ctx.stroke();
+
+        // Marcas micrométricas
+        for (let m = -100; m <= 100; m += 10) {
+          const tick = m % 50 === 0 ? 8 : 4;
+          ctx.beginPath();
+          ctx.moveTo(cx + m, cy - tick);
+          ctx.lineTo(cx + m, cy + tick);
+          ctx.stroke();
+        }
+
+        // Barra de escala calibrada según objetivo
+        const scaleBarLengthPx = 90;
+        const scaleMicrons = this.objective === 100 ? "10 µm" : this.objective === 40 ? "25 µm" : "50 µm";
+        ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
+        ctx.fillRect(cx + 130, cy + 230, scaleBarLengthPx + 24, 34);
+        ctx.strokeStyle = "#38bdf8";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(cx + 142, cy + 254);
+        ctx.lineTo(cx + 142 + scaleBarLengthPx, cy + 254);
+        ctx.stroke();
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 11px JetBrains Mono, monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(scaleMicrons, cx + 142 + scaleBarLengthPx / 2, cy + 245);
+        ctx.restore();
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 8: InteractionManager
+    // Gestiona el raycasting 3D, selección de instrumentos, validación de acciones
+    // sobre las DropZones, animaciones 3D de manipulación y prevención de errores.
+    // ============================================================================
+    class InteractionManager {
+      constructor({ camera, domElement, interactables, dropZones, samplePrep, progress, microscope, ui }) {
+        this.camera = camera;
+        this.domElement = domElement;
+        this.interactables = interactables;
+        this.dropZones = dropZones;
+        this.samplePrep = samplePrep;
+        this.progress = progress;
+        this.microscope = microscope;
+        this.ui = ui;
+
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.hoveredInteractable = null;
+        this.hoveredDropZone = null;
+        this.activeTool = null;
+        this.activeAnimations = [];
+
+        this.initEvents();
+      }
+
+      initEvents() {
+        let downPos = { x: 0, y: 0 };
+
+        this.domElement.addEventListener("mousemove", e => {
+          const rect = this.domElement.getBoundingClientRect();
+          this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+          this.handleHover(e.clientX, e.clientY);
+        });
+
+        this.domElement.addEventListener("mousedown", e => {
+          downPos = { x: e.clientX, y: e.clientY };
+        });
+
+        this.domElement.addEventListener("mouseup", e => {
+          if (e.button === 2) {
+            this.releaseActiveTool();
+            return;
+          }
+          const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+          if (dist < 6) {
+            this.handleClick();
+          }
+        });
+
+        this.domElement.addEventListener("contextmenu", e => e.preventDefault());
+      }
+
+      handleHover(clientX, clientY) {
+        if (this.microscope.isActive) return;
+
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const meshes = [];
+        this.interactables.forEach(item => {
+          if (item.meshGroup.visible) meshes.push(item.meshGroup);
+        });
+        this.dropZones.forEach(zone => meshes.push(zone.mesh));
+
+        const intersects = this.raycaster.intersectObjects(meshes, true);
+        let foundInteractable = null;
+        let foundZone = null;
+
+        for (const hit of intersects) {
+          if (hit.object.userData.interactable && !foundInteractable) {
+            foundInteractable = hit.object.userData.interactable;
+          }
+          if (hit.object.userData.dropZone && !foundZone) {
+            foundZone = hit.object.userData.dropZone;
+          }
+        }
+
+        if (this.hoveredInteractable && this.hoveredInteractable !== foundInteractable) {
+          this.hoveredInteractable.setHighlight(false);
+        }
+        this.hoveredInteractable = foundInteractable;
+
+        if (foundInteractable) {
+          foundInteractable.setHighlight(true);
+          this.domElement.style.cursor = "pointer";
+          this.ui.showTooltip(clientX, clientY, foundInteractable.name, foundInteractable.description, foundInteractable.stateText);
+
+          // Registrar inspección en Paso 2
+          if (!this.progress.inspectedItems.has(foundInteractable.id)) {
+            this.progress.inspectedItems.add(foundInteractable.id);
+            if (this.progress.inspectedItems.size >= 3) {
+              this.progress.unlockBadge("explorer");
+              if (this.progress.currentStep === 2) {
+                this.progress.advanceToStep(3);
+              }
+            }
+          }
+        } else if (foundZone) {
+          this.domElement.style.cursor = "pointer";
+          this.ui.showTooltip(clientX, clientY, foundZone.name, foundZone.description, "Zona de Destino Validada");
+        } else {
+          this.domElement.style.cursor = "grab";
+          this.ui.hideTooltip();
+        }
+
+        // Resaltar DropZones cuando hay un instrumento activo
+        this.dropZones.forEach(z => {
+          if (this.activeTool) {
+            const isValid = z.acceptedIds.includes(this.activeTool.id);
+            z.setPulse(z === foundZone || isValid, isValid);
+          } else {
+            z.setPulse(false);
+          }
+        });
+      }
+
+      handleClick() {
+        if (this.microscope.isActive) return;
+
+        // Si se hace clic en una DropZone mientras se sostiene un instrumento
+        if (this.activeTool && this.hoveredInteractable === null) {
+          this.raycaster.setFromCamera(this.mouse, this.camera);
+          const zoneHits = this.raycaster.intersectObjects(this.dropZones.map(z => z.mesh), true);
+          if (zoneHits.length > 0) {
+            const zone = zoneHits[0].object.userData.dropZone;
+            if (zone) {
+              this.executeZoneDrop(zone, this.activeTool);
+              return;
+            }
+          }
+        }
+
+        if (this.hoveredInteractable) {
+          this.interactWithObject(this.hoveredInteractable);
+        }
+      }
+
+      selectToolById(id) {
+        const item = this.interactables.find(i => i.id === id);
+        if (item) {
+          this.interactWithObject(item);
+        }
+      }
+
+      interactWithObject(item) {
+        // Registrar inspección para el Paso 2
+        this.progress.inspectedItems.add(item.id);
+        if (this.progress.inspectedItems.size >= 3) {
+          this.progress.unlockBadge("explorer");
+          if (this.progress.currentStep === 2) {
+            this.progress.advanceToStep(3);
+          }
+        }
+
+        // Caso especial: si tenemos la Pipeta activa y hacemos clic en el Frasco de Tinción
+        if (this.activeTool && this.activeTool.id === "pipette" && item.id === "stain_bottle") {
+          this.loadPipetteFromStainBottle(item);
+          return;
+        }
+
+        // Caso especial: si hacemos clic sobre el Microscopio teniendo el Portaobjetos Preparado en la mano
+        if (this.activeTool && this.activeTool.id === "prepared_slide" && item.id === "microscope") {
+          const stageZone = this.dropZones.find(z => z.id === "zone_stage");
+          if (stageZone) {
+            this.executeZoneDrop(stageZone, this.activeTool);
+            return;
+          }
+        }
+
+        // Caso especial: hacer clic en el Contenedor de Residuos directamente con la pipeta usada
+        if (item.id === "waste_bin") {
+          const wasteZone = this.dropZones.find(z => z.id === "zone_waste");
+          if (wasteZone) {
+            this.executeZoneDrop(wasteZone, this.activeTool || item);
+            return;
+          }
+        }
+
+        // Caso especial: hacer clic en el Microscopio para entrar a la vista ocular
+        if (item.id === "microscope") {
+          this.ui.hideTooltip();
+          this.microscope.enterMicroscope();
+          return;
+        }
+
+        // Caso especial: clic en paneles científicos de la pared
+        if (item.id === "wall_poster") {
+          this.ui.openModal("modal-scientific-codex");
+          return;
+        }
+
+        // Si ya tenemos una herramienta activa y hacemos clic en el Portaobjetos en la zona de preparación, redirigir a la Zona de Preparación
+        if (this.activeTool && this.activeTool !== item && item.id === "prepared_slide") {
+          const prepZone = this.dropZones.find(z => z.id === "zone_prep");
+          if (prepZone) {
+            this.executeZoneDrop(prepZone, this.activeTool);
+            return;
+          }
+        }
+
+        // Si el colorante ya fue puesto pero falta confirmar la incubación en el Paso 5, abrir la ventana emergente al tocar el portaobjetos
+        if (item.id === "prepared_slide" && this.samplePrep.state.stainApplied && !this.samplePrep.state.stainIncubated) {
+          this.ui.showStainingTimerWidget();
+          return;
+        }
+
+        // Si ya se secó con papel filtro y falta el Squash en el Paso 9, abrir el control emergente de Squash al tocar el portaobjetos
+        if (item.id === "prepared_slide" && this.samplePrep.state.filterBlotted && !this.samplePrep.state.squashPerformed) {
+          this.ui.showSquashControlWidget();
+          return;
+        }
+
+        // Seleccionar / recoger el instrumento
+        if (this.activeTool && this.activeTool !== item) {
+          this.activeTool.returnHome();
+        }
+
+        if (this.activeTool === item) {
+          // Si ya está seleccionado, ejecutar acción contextual automática sobre la zona correspondiente para facilitar el uso
+          this.autoExecuteForSelectedTool(item);
+          return;
+        }
+
+        this.activeTool = item;
+        item.isSelected = true;
+        item.setHighlight(true);
+
+        // Elevar suavemente el objeto en 3D para indicar que está en uso
+        this.animateObjectTo(item.meshGroup, new THREE.Vector3(
+          item.homePosition.x,
+          item.homePosition.y + 0.22,
+          item.homePosition.z + 0.12
+        ));
+
+        this.ui.updateActiveToolUI(item);
+        this.ui.showToast(`Seleccionado: ${item.name}. Haz clic en la zona de destino o vuelve a pulsar el instrumento para aplicarlo.`, "info");
+      }
+
+      autoExecuteForSelectedTool(item) {
+        const prepZone = this.dropZones.find(z => z.id === "zone_prep");
+        const wasteZone = this.dropZones.find(z => z.id === "zone_waste");
+        const stageZone = this.dropZones.find(z => z.id === "zone_stage");
+
+        if (item.id === "pipette" && !this.samplePrep.state.pipetteLoadedWithStain && !this.samplePrep.state.stainApplied) {
+          const bottle = this.interactables.find(i => i.id === "stain_bottle");
+          if (bottle) this.loadPipetteFromStainBottle(bottle);
+        } else if (item.id === "pipette" && this.samplePrep.state.pipetteUsed && !this.samplePrep.state.wasteDisposed) {
+          this.executeZoneDrop(wasteZone, item);
+        } else if (item.id === "prepared_slide") {
+          this.executeZoneDrop(stageZone, item);
+        } else if (item.id === "stain_bottle") {
+          const pipette = this.interactables.find(i => i.id === "pipette");
+          if (pipette) {
+            this.interactWithObject(pipette);
+            this.loadPipetteFromStainBottle(item);
+          }
+        } else {
+          this.executeZoneDrop(prepZone, item);
+        }
+      }
+
+      loadPipetteFromStainBottle(bottleItem) {
+        if (!this.samplePrep.state.samplePlaced) {
+          this.ui.showToast("Acción prematura: Primero coloca el portaobjetos y la muestra biológica en la Zona de Preparación.", "error");
+          return;
+        }
+        this.samplePrep.state.pipetteLoadedWithStain = true;
+        this.activeTool.stateText = "Cargada con Orceína Aceto-Láctica (2%)";
+        bottleItem.stateText = "Abierto — Orceína Aceto-Láctica 2%";
+        this.animateObjectTo(this.activeTool.meshGroup, new THREE.Vector3(
+          bottleItem.homePosition.x,
+          bottleItem.homePosition.y + 0.28,
+          bottleItem.homePosition.z
+        ));
+        this.ui.showToast("Micropipeta cargada con 25 µL de Orceína Aceto-Láctica al 2%. Ahora haz clic sobre la Zona de Preparación.", "success");
+        this.ui.updateSampleChecklist();
+      }
+
+      executeZoneDrop(zone, tool) {
+        if (!tool) return;
+        const s = this.samplePrep.state;
+
+        // ZONA 1: ZONA DE PREPARACIÓN CENTRAL
+        if (zone.id === "zone_prep") {
+          if (tool.id === "slide") {
+            if (s.slidePlaced) {
+              this.ui.showToast("El portaobjetos limpio ya se encuentra en la Zona de Preparación.", "info");
+              return;
+            }
+            s.slidePlaced = true;
+            tool.meshGroup.visible = false;
+            tool.stateText = "Colocado en Zona de Preparación";
+            this.releaseActiveTool();
+            this.samplePrep.sync3DVisuals();
+            this.progress.addScore(20, "Portaobjetos colocado correctamente en la Zona de Preparación");
+            if (this.progress.currentStep <= 3) this.progress.advanceToStep(4);
+          }
+          else if (tool.id === "biosample") {
+            if (!s.slidePlaced) {
+              this.progress.addScore(-5, "Intento de colocar la muestra sin portaobjetos");
+              this.ui.showToast("Acción inválida: Primero debes colocar un Portaobjetos limpio sobre la Zona de Preparación.", "error");
+              return;
+            }
+            if (s.samplePlaced) {
+              this.ui.showToast("Las glándulas salivales ya fueron transferidas al portaobjetos.", "info");
+              return;
+            }
+            s.samplePlaced = true;
+            tool.stateText = "Glándulas transferidas al portaobjetos";
+            this.animateActionPulse(tool.meshGroup, zone.position, () => {
+              this.releaseActiveTool();
+              this.samplePrep.sync3DVisuals();
+            });
+            this.progress.addScore(25, "Glándulas salivales de D. melanogaster depositadas en solución de Ringer");
+            if (this.progress.currentStep <= 4) this.progress.advanceToStep(5);
+          }
+          else if (tool.id === "pipette" || tool.id === "stain_bottle") {
+            if (!s.samplePlaced) {
+              this.ui.showToast("Primero transfiere la Muestra Biológica al portaobjetos (Paso 4).", "error");
+              return;
+            }
+            if (s.stainApplied) {
+              if (!s.stainIncubated) {
+                this.ui.showStainingTimerWidget();
+              } else {
+                this.ui.showToast("El colorante ya fue aplicado e incubado sobre la muestra.", "info");
+              }
+              return;
+            }
+            // Si el usuario aplica directamente la pipeta en el Paso 5 sin haber tocado el frasco antes, cargarla automáticamente para evitar bloqueos
+            if (tool.id === "pipette" && !s.pipetteLoadedWithStain) {
+              s.pipetteLoadedWithStain = true;
+              const bottleItem = this.interactables.find(i => i.id === "stain_bottle");
+              if (bottleItem) bottleItem.stateText = "Abierto — Orceína Aceto-Láctica 2%";
+            }
+            s.stainApplied = true;
+            s.pipetteLoadedWithStain = false;
+            s.pipetteUsed = true;
+            const pipetteItem = this.interactables.find(i => i.id === "pipette");
+            if (pipetteItem) {
+              pipetteItem.stateText = "Punta con residuo de Orceína (Descartar en Residuos)";
+            }
+            this.releaseActiveTool();
+            this.samplePrep.sync3DVisuals();
+            this.progress.addScore(25, "Orceína Aceto-Láctica al 2% aplicada sobre las glándulas salivales");
+            this.ui.updateSampleChecklist();
+            this.ui.updateStepPanel();
+            // Mostrar inmediatamente la ventana emergente de incubación en el centro de la pantalla
+            this.ui.showStainingTimerWidget();
+          }
+          else if (tool.id === "coverslip") {
+            if (!s.stainIncubated) {
+              if (s.stainApplied) {
+                this.ui.showStainingTimerWidget();
+              } else {
+                this.ui.showToast("Acción prematura: Debes aplicar e incubar primero la tinción con Orceína Aceto-Láctica.", "error");
+              }
+              return;
+            }
+            if (!s.wasteDisposed && this.progress.guidedMode) {
+              this.ui.showToast("Bioseguridad: Descarta primero la punta usada de la pipeta en el Recipiente de Residuos (Paso 6).", "warning");
+              return;
+            }
+            if (s.coverslipPlaced) {
+              this.ui.showToast("El cubreobjetos ya fue colocado sobre la preparación.", "info");
+              return;
+            }
+            s.coverslipPlaced = true;
+            tool.stateText = "Cubreobjetos 22×22 mm montado";
+            this.animateActionPulse(tool.meshGroup, zone.position, () => {
+              this.releaseActiveTool();
+              this.samplePrep.sync3DVisuals();
+            });
+            this.progress.addScore(20, "Cubreobjetos colocado a 45° sin formación de burbujas");
+            if (this.progress.currentStep <= 7) this.progress.advanceToStep(8);
+          }
+          else if (tool.id === "filter_paper") {
+            if (!s.coverslipPlaced) {
+              this.ui.showToast("Primero debes colocar el Cubreobjetos sobre la muestra teñida antes de secar con papel filtro.", "error");
+              return;
+            }
+            if (s.filterBlotted) {
+              this.ui.showToast("El exceso de colorante ya fue absorbido con el papel filtro.", "info");
+              return;
+            }
+            s.filterBlotted = true;
+            tool.stateText = "Impregnado con exceso de Orceína";
+            this.animateActionPulse(tool.meshGroup, zone.position, () => {
+              this.releaseActiveTool();
+              this.samplePrep.sync3DVisuals();
+            });
+            this.progress.addScore(20, "Exceso de Orceína Aceto-Láctica absorbido con papel filtro Whatman");
+            if (this.progress.currentStep <= 8) {
+              this.progress.advanceToStep(9);
+              this.ui.showSquashControlWidget();
+            }
+          }
+          else if (tool.id === "squash_tool") {
+            if (!s.filterBlotted) {
+              this.ui.showToast("Antes de ejecutar el Squash, absorbe el exceso de colorante con el Papel Filtro.", "error");
+              return;
+            }
+            this.releaseActiveTool();
+            this.ui.showSquashControlWidget();
+          }
+          else {
+            this.ui.showToast(`El instrumento «${tool.name}» no se utiliza directamente sobre la Zona de Preparación en este paso.`, "warning");
+          }
+        }
+
+        // ZONA 2: RECIPIENTE DE RESIDUOS BIOLÓGICOS Y PUNZOCORTANTES
+        else if (zone.id === "zone_waste") {
+          if (this.samplePrep.state.pipetteUsed && !this.samplePrep.state.wasteDisposed) {
+            this.samplePrep.state.wasteDisposed = true;
+            const pipette = this.interactables.find(i => i.id === "pipette");
+            if (pipette) pipette.stateText = "Limpia (Punta descartada)";
+            this.releaseActiveTool();
+            this.progress.addScore(20, "Punta usada descartada conforme al protocolo de bioseguridad");
+            this.progress.unlockBadge("chemist");
+            if (this.progress.currentStep <= 6) this.progress.advanceToStep(7);
+          } else {
+            this.ui.showToast("No hay puntas contaminadas ni residuos pendientes de descarte en este momento.", "info");
+            this.releaseActiveTool();
+          }
+        }
+
+        // ZONA 3: PLATINA DEL MICROSCOPIO ÓPTICO
+        else if (zone.id === "zone_stage") {
+          if (tool.id === "prepared_slide" || (s.squashPerformed && tool.id === "slide")) {
+            if (!s.squashPerformed) {
+              this.ui.showToast("Debes completar el aplastamiento (Squash) antes de llevar la lámina al microscopio.", "error");
+              return;
+            }
+            s.onMicroscopeStage = true;
+            this.releaseActiveTool();
+            this.samplePrep.sync3DVisuals();
+            this.progress.addScore(25, "Portaobjetos instalado en las pinzas de la platina XY del microscopio");
+            if (this.progress.currentStep <= 11) this.progress.advanceToStep(12);
+          } else {
+            this.ui.showToast("Solo puedes colocar el Portaobjetos Preparado sobre la platina del microscopio.", "warning");
+          }
+        }
+
+        this.ui.updateSampleChecklist();
+        this.ui.renderInventory();
+      }
+
+      releaseActiveTool() {
+        if (this.activeTool) {
+          this.activeTool.returnHome();
+          this.activeTool = null;
+          this.ui.updateActiveToolUI(null);
+          this.dropZones.forEach(z => z.setPulse(false));
+        }
+      }
+
+      animateObjectTo(meshGroup, targetPos, duration = 260, onComplete = null) {
+        const startPos = meshGroup.position.clone();
+        const startTime = performance.now();
+        this.activeAnimations.push({
+          update: now => {
+            const t = Math.min(1, (now - startTime) / duration);
+            const ease = 1 - Math.pow(1 - t, 3);
+            meshGroup.position.lerpVectors(startPos, targetPos, ease);
+            if (t >= 1) {
+              if (onComplete) onComplete();
+              return true;
+            }
+            return false;
+          }
+        });
+      }
+
+      animateActionPulse(meshGroup, targetPos, onComplete) {
+        const hoverPos = new THREE.Vector3(targetPos.x, targetPos.y + 0.18, targetPos.z);
+        this.animateObjectTo(meshGroup, hoverPos, 240, () => {
+          this.animateObjectTo(meshGroup, new THREE.Vector3(targetPos.x, targetPos.y + 0.06, targetPos.z), 180, () => {
+            if (onComplete) onComplete();
+          });
+        });
+      }
+
+      updateAnimations(now) {
+        this.activeAnimations = this.activeAnimations.filter(anim => !anim.update(now));
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 9: UIManager
+    // Sincroniza todos los paneles de la interfaz, inventario, notificaciones,
+    // cuaderno de observaciones, base científica y evaluación final.
+    // ============================================================================
+    class UIManager {
+      constructor({ scientificData, progress, samplePrep, cameraController, microscope }) {
+        this.data = scientificData;
+        this.progress = progress;
+        this.samplePrep = samplePrep;
+        this.cameraController = cameraController;
+        this.microscope = microscope;
+        this.interactables = [];
+        this.interactionManager = null;
+        this.stainingTimerInterval = null;
+
+        this.tooltipEl = document.getElementById("floating-tooltip");
+        this.toastContainer = document.getElementById("toast-container");
+      }
+
+      bindInteractionManager(interactionManager, interactables) {
+        this.interactionManager = interactionManager;
+        this.interactables = interactables;
+        this.initUIEvents();
+        this.renderCodex();
+        this.renderBadges();
+        this.renderInventory();
+        this.updateStepPanel();
+        this.updateSampleChecklist();
+        this.updateScoreAndProgress();
+        this.renderOcularChallengeList();
+        this.renderObservations();
+        this.renderEvaluationQuiz();
+      }
+
+      initUIEvents() {
+        // Botones del menú principal
+        document.getElementById("btn-start-practice").addEventListener("click", () => {
+          this.closeModal("modal-main-menu");
+        });
+        document.getElementById("btn-main-menu").addEventListener("click", () => {
+          this.openModal("modal-main-menu");
+        });
+        document.getElementById("btn-menu-guided").addEventListener("click", () => {
+          this.setGuidedMode(true);
+        });
+        document.getElementById("btn-menu-free").addEventListener("click", () => {
+          this.setGuidedMode(false);
+        });
+
+        // Botones de barra superior
+        document.getElementById("btn-toggle-mode").addEventListener("click", () => {
+          this.setGuidedMode(!this.progress.guidedMode);
+        });
+        document.getElementById("btn-open-codex").addEventListener("click", () => {
+          this.openModal("modal-scientific-codex");
+        });
+        document.getElementById("btn-open-notebook").addEventListener("click", () => {
+          this.openModal("modal-notebook");
+        });
+        document.getElementById("btn-open-quiz").addEventListener("click", () => {
+          this.openModal("modal-evaluation");
+        });
+        document.getElementById("btn-reset-lab").addEventListener("click", () => {
+          window.labApp.resetPractice();
+        });
+        document.getElementById("btn-reset-from-eval").addEventListener("click", () => {
+          this.closeModal("modal-evaluation");
+          window.labApp.resetPractice();
+        });
+
+        // Cerrar modales
+        document.querySelectorAll("[data-close-modal]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            this.closeModal(btn.getAttribute("data-close-modal"));
+          });
+        });
+
+        // Personaje guía y pistas
+        document.getElementById("btn-toggle-guide").addEventListener("click", () => {
+          this.progress.guideVisible = !this.progress.guideVisible;
+          document.getElementById("btn-toggle-guide").textContent = `Guía: ${this.progress.guideVisible ? 'ON' : 'OFF'}`;
+          document.getElementById("guide-dialogue-box").classList.toggle("hidden", !this.progress.guideVisible);
+          document.getElementById("guide-avatar").classList.toggle("hidden", !this.progress.guideVisible);
+        });
+
+        document.getElementById("btn-request-hint").addEventListener("click", () => {
+          const hintBox = document.getElementById("hint-display-box");
+          const stepObj = this.data.steps[this.progress.currentStep - 1];
+          hintBox.innerHTML = `<strong>💡 Pista (Paso ${stepObj.number}):</strong> ${stepObj.hint}`;
+          hintBox.classList.toggle("hidden");
+        });
+
+        document.getElementById("btn-step-action").addEventListener("click", () => {
+          this.handlePrimaryStepButton();
+        });
+
+        document.getElementById("btn-drop-tool").addEventListener("click", () => {
+          if (this.interactionManager) this.interactionManager.releaseActiveTool();
+        });
+
+        // Vistas de cámara
+        document.querySelectorAll(".cam-preset-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const preset = btn.getAttribute("data-cam");
+            if (preset === "microscope") {
+              this.microscope.enterMicroscope();
+            } else {
+              this.cameraController.transitionToPreset(preset);
+            }
+          });
+        });
+
+        // Controles del Microscopio
+        document.getElementById("btn-exit-microscope").addEventListener("click", () => {
+          this.microscope.exitMicroscope();
+        });
+
+        document.querySelectorAll(".mag-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const mag = Number(btn.getAttribute("data-mag"));
+            this.microscope.setObjective(mag);
+            document.querySelectorAll(".mag-btn").forEach(b => {
+              const active = Number(b.getAttribute("data-mag")) === mag;
+              b.className = active
+                ? "mag-btn py-2 px-2 rounded-xl border text-center transition flex flex-col items-center gap-0.5 bg-sky-500/20 border-sky-400 text-white"
+                : "mag-btn py-2 px-2 rounded-xl border text-center transition flex flex-col items-center gap-0.5 bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800";
+            });
+          });
+        });
+
+        document.getElementById("slider-coarse-focus").addEventListener("input", e => {
+          this.microscope.coarseFocus = Number(e.target.value);
+          document.getElementById("coarse-val-label").textContent = e.target.value;
+          this.microscope.checkFocusedExploration();
+          this.microscope.renderOcular();
+        });
+
+        document.getElementById("slider-fine-focus").addEventListener("input", e => {
+          this.microscope.fineFocus = Number(e.target.value);
+          document.getElementById("fine-val-label").textContent = e.target.value;
+          this.microscope.checkFocusedExploration();
+          this.microscope.renderOcular();
+        });
+
+        document.getElementById("slider-illumination").addEventListener("input", e => {
+          this.microscope.illumination = Number(e.target.value);
+          document.getElementById("light-val-label").textContent = `${e.target.value}%`;
+          this.microscope.renderOcular();
+        });
+
+        document.getElementById("btn-auto-focus-assist").addEventListener("click", () => {
+          this.microscope.autoFocusAssist();
+        });
+
+        document.querySelectorAll(".stage-pan-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const [dx, dy] = btn.getAttribute("data-pan").split(",").map(Number);
+            this.microscope.stageX = Math.max(-280, Math.min(280, this.microscope.stageX + dx));
+            this.microscope.stageY = Math.max(-280, Math.min(280, this.microscope.stageY + dy));
+            this.microscope.renderOcular();
+          });
+        });
+
+        const resetPan = () => {
+          this.microscope.stageX = 0;
+          this.microscope.stageY = 0;
+          this.microscope.renderOcular();
+        };
+        document.getElementById("btn-reset-pan").addEventListener("click", resetPan);
+        document.getElementById("btn-center-stage").addEventListener("click", resetPan);
+
+        document.getElementById("chk-ocular-labels").addEventListener("change", e => {
+          this.microscope.showLabels = e.target.checked;
+          this.microscope.renderOcular();
+        });
+
+        document.getElementById("chk-ocular-grid").addEventListener("change", e => {
+          this.microscope.showGrid = e.target.checked;
+          this.microscope.renderOcular();
+        });
+
+        document.getElementById("btn-record-structure-obs").addEventListener("click", () => {
+          const st = this.microscope.selectedStructure;
+          if (!st) return;
+          this.progress.addObservation(
+            `${this.microscope.objective * 10}x (Obj. ${this.microscope.objective}x)`,
+            `${st.locus}: ${st.description}`,
+            st.name
+          );
+          this.showToast(`Estructura «${st.name}» registrada en el Cuaderno de Laboratorio.`, "success");
+        });
+
+        // Guardar observación manual
+        document.getElementById("btn-save-obs").addEventListener("click", () => {
+          const mag = document.getElementById("obs-mag-select").value;
+          const noteInput = document.getElementById("obs-note-input");
+          const text = noteInput.value.trim();
+          if (!text) {
+            this.showToast("Escribe una descripción antes de guardar la observación.", "warning");
+            return;
+          }
+          this.progress.addObservation(mag, text, "Anotación del investigador");
+          this.progress.addScore(15, "Observación científica documentada en el cuaderno");
+          noteInput.value = "";
+        });
+
+        // Calificar Evaluación Final
+        document.getElementById("btn-submit-evaluation").addEventListener("click", () => {
+          this.gradeEvaluation();
+        });
+
+        // Atajos de teclado (Escape, W/S enfoque, flechas platina)
+        window.addEventListener("keydown", e => {
+          if (e.key === "Escape") {
+            if (this.microscope.isActive) {
+              this.microscope.exitMicroscope();
+            } else if (this.interactionManager && this.interactionManager.activeTool) {
+              this.interactionManager.releaseActiveTool();
+            }
+          }
+          if (this.microscope.isActive && document.activeElement.tagName !== "INPUT") {
+            if (e.key === "w" || e.key === "W") {
+              this.microscope.fineFocus = Math.min(25, this.microscope.fineFocus + 1);
+              document.getElementById("slider-fine-focus").value = this.microscope.fineFocus;
+              document.getElementById("fine-val-label").textContent = this.microscope.fineFocus;
+              this.microscope.checkFocusedExploration();
+              this.microscope.renderOcular();
+            } else if (e.key === "s" || e.key === "S") {
+              this.microscope.fineFocus = Math.max(-25, this.microscope.fineFocus - 1);
+              document.getElementById("slider-fine-focus").value = this.microscope.fineFocus;
+              document.getElementById("fine-val-label").textContent = this.microscope.fineFocus;
+              this.microscope.checkFocusedExploration();
+              this.microscope.renderOcular();
+            } else if (e.key === "ArrowUp") {
+              this.microscope.stageY += 15;
+              this.microscope.renderOcular();
+            } else if (e.key === "ArrowDown") {
+              this.microscope.stageY -= 15;
+              this.microscope.renderOcular();
+            } else if (e.key === "ArrowLeft") {
+              this.microscope.stageX += 15;
+              this.microscope.renderOcular();
+            } else if (e.key === "ArrowRight") {
+              this.microscope.stageX -= 15;
+              this.microscope.renderOcular();
+            }
+          }
+        });
+      }
+
+      setGuidedMode(guided) {
+        this.progress.guidedMode = guided;
+        const badge = document.getElementById("mode-badge");
+        const btnGuided = document.getElementById("btn-menu-guided");
+        const btnFree = document.getElementById("btn-menu-free");
+
+        if (guided) {
+          badge.textContent = "Modo Guiado";
+          badge.className = "text-[11px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
+          btnGuided.className = "px-4 py-2 rounded-xl text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-400";
+          btnFree.className = "px-4 py-2 rounded-xl text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700";
+          this.showToast("Modo Guiado activado: Sigue la secuencia estructurada de 14 etapas.", "info");
+        } else {
+          badge.textContent = "Exploración Libre";
+          badge.className = "text-[11px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40";
+          btnFree.className = "px-4 py-2 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-400";
+          btnGuided.className = "px-4 py-2 rounded-xl text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700";
+          this.showToast("Modo de Exploración Libre activado: Puedes manipular cualquier instrumento o cargar una lámina de demostración directamente en el microscopio.", "info");
+        }
+        this.updateStepPanel();
+      }
+
+      handlePrimaryStepButton() {
+        const step = this.progress.currentStep;
+        const s = this.samplePrep.state;
+
+        if (step === 1) {
+          this.progress.addScore(10, "Inicio de la sesión experimental");
+          this.progress.advanceToStep(2);
+        } else if (step === 5) {
+          // Si aún no se ha aplicado el colorante, aplicarlo automáticamente si la muestra ya está puesta y abrir la ventana emergente
+          if (!s.samplePlaced) {
+            this.showToast("Primero coloca el portaobjetos y la muestra biológica en la Zona de Preparación.", "warning");
+            return;
+          }
+          if (!s.stainApplied) {
+            s.stainApplied = true;
+            s.pipetteLoadedWithStain = false;
+            s.pipetteUsed = true;
+            const pipetteItem = this.interactables.find(i => i.id === "pipette");
+            if (pipetteItem) pipetteItem.stateText = "Punta con residuo de Orceína (Descartar en Residuos)";
+            this.samplePrep.sync3DVisuals();
+            this.progress.addScore(25, "Orceína Aceto-Láctica al 2% aplicada sobre las glándulas salivales");
+            this.updateSampleChecklist();
+            this.updateStepPanel();
+          }
+          this.showStainingTimerWidget();
+        } else if (step === 9 && s.filterBlotted) {
+          this.showSquashControlWidget();
+        } else if (step === 10) {
+          if (!s.squashPerformed) {
+            this.showToast("Completa primero la técnica de aplastamiento (Squash) antes de validar la preparación.", "warning");
+            return;
+          }
+          s.validated = true;
+          this.progress.addScore(25, `Preparación validada: ${this.samplePrep.getQualityLabel()}`);
+          this.progress.advanceToStep(11);
+          this.updateSampleChecklist();
+        } else if (step === 14) {
+          this.openModal("modal-evaluation");
+        } else if (!this.progress.guidedMode) {
+          // En modo libre: preparar automáticamente el montaje óptimo para inspección inmediata en el microscopio
+          s.slidePlaced = true;
+          s.samplePlaced = true;
+          s.stainApplied = true;
+          s.stainIncubated = true;
+          s.wasteDisposed = true;
+          s.coverslipPlaced = true;
+          s.filterBlotted = true;
+          s.squashPerformed = true;
+          s.squashPressure = 75;
+          s.squashQuality = "optimal";
+          s.validated = true;
+          s.onMicroscopeStage = true;
+          this.samplePrep.sync3DVisuals();
+          this.updateSampleChecklist();
+          this.renderInventory();
+          this.microscope.enterMicroscope();
+          this.microscope.autoFocusAssist();
+          this.showToast("Lámina de referencia preparada y montada directamente en el microscopio.", "success");
+        }
+      }
+
+      // Ventana emergente del Paso 5: Incubación de Orceína Aceto-Láctica al 2%
+      showStainingTimerWidget() {
+        const backdrop = document.getElementById("special-action-backdrop");
+        const titleEl = document.getElementById("widget-title");
+        const statusEl = document.getElementById("widget-status");
+        const descEl = document.getElementById("widget-desc");
+        const controlsEl = document.getElementById("widget-controls");
+
+        if (this.stainingTimerInterval) {
+          clearInterval(this.stainingTimerInterval);
+          this.stainingTimerInterval = null;
+        }
+
+        backdrop.classList.remove("hidden");
+        backdrop.classList.add("flex");
+
+        titleEl.textContent = "Incubación con Orceína Aceto-Láctica (2%)";
+        statusEl.textContent = "Incubando...";
+        descEl.innerHTML =
+          "Protocolo real: <strong>10–15 minutos</strong> en cámara húmeda con Orceína al 2% en ácido acético al 45% y ácido láctico (fijación de histonas y tinción selectiva de bandas de ADN condensado).<br><span class='text-sky-300'>Simulación acelerada: 3 segundos.</span>";
+
+        controlsEl.innerHTML = `
+          <div class="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-700">
+            <div id="stain-progress-bar" class="h-full bg-gradient-to-r from-rose-600 via-pink-500 to-fuchsia-400 transition-all duration-150" style="width: 10%;"></div>
+          </div>
+          <div class="flex justify-between text-[11px] font-mono-code text-slate-300">
+            <span id="stain-sim-time">Tiempo equivalente: 1.2 / 12.0 min</span>
+            <span id="stain-sim-pct" class="text-pink-300 font-bold">10%</span>
+          </div>
+          <button id="btn-complete-incubation" class="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-lg shadow-emerald-500/25 transition">
+            ✓ Completar Incubación y Continuar al Paso 6
+          </button>
+        `;
+
+        let pct = 10;
+        const barEl = document.getElementById("stain-progress-bar");
+        const timeEl = document.getElementById("stain-sim-time");
+        const pctEl = document.getElementById("stain-sim-pct");
+
+        this.stainingTimerInterval = setInterval(() => {
+          pct = Math.min(100, pct + 15);
+          if (barEl) barEl.style.width = `${pct}%`;
+          if (timeEl) timeEl.textContent = `Tiempo equivalente: ${((pct / 100) * 12).toFixed(1)} / 12.0 min`;
+          if (pctEl) pctEl.textContent = `${pct}%`;
+          if (pct >= 100) {
+            clearInterval(this.stainingTimerInterval);
+            this.stainingTimerInterval = null;
+            statusEl.textContent = "12 min completados";
+          }
+        }, 350);
+
+        document.getElementById("btn-complete-incubation").addEventListener("click", () => {
+          if (this.stainingTimerInterval) {
+            clearInterval(this.stainingTimerInterval);
+            this.stainingTimerInterval = null;
+          }
+          this.samplePrep.state.stainIncubated = true;
+          this.samplePrep.sync3DVisuals();
+          this.hideSpecialWidget();
+          this.progress.addScore(25, "Incubación de 12 min en Orceína Aceto-Láctica completada");
+          if (this.progress.currentStep <= 5) {
+            this.progress.advanceToStep(6);
+          }
+          this.updateSampleChecklist();
+          this.updateStepPanel();
+          this.renderInventory();
+        });
+      }
+
+      // Ventana emergente del Paso 9: Control de Presión Vertical de Squash
+      showSquashControlWidget() {
+        const backdrop = document.getElementById("special-action-backdrop");
+        const titleEl = document.getElementById("widget-title");
+        const statusEl = document.getElementById("widget-status");
+        const descEl = document.getElementById("widget-desc");
+        const controlsEl = document.getElementById("widget-controls");
+
+        backdrop.classList.remove("hidden");
+        backdrop.classList.add("flex");
+
+        titleEl.textContent = "Técnica de Aplastamiento Vertical (Squash)";
+        statusEl.textContent = "Rango óptimo: 65–85 kPa";
+        descEl.innerHTML =
+          "Aplica presión estrictamente vertical sobre el cubreobjetos cubierto con papel filtro para romper las envolturas nucleares y extender los brazos politénicos en un único plano focal sin cizallamiento lateral.";
+
+        controlsEl.innerHTML = `
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300 font-medium">Presión Vertical Aplicada:</span>
+              <span id="squash-kpa-label" class="font-mono-code font-bold text-emerald-400">75 kPa (Óptima)</span>
+            </div>
+            <input id="slider-squash-pressure" type="range" min="20" max="120" step="1" value="75" class="w-full accent-emerald-400 cursor-pointer" />
+            <div class="flex justify-between text-[10px] text-slate-400 font-mono-code mt-1">
+              <span>20 kPa (Sub-aplastado)</span>
+              <span class="text-emerald-400">65–85 kPa (Óptimo)</span>
+              <span>120 kPa (Fractura)</span>
+            </div>
+          </div>
+          <div class="flex gap-2 mt-1">
+            <button id="btn-cancel-squash" class="px-3 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">
+              Cerrar
+            </button>
+            <button id="btn-confirm-squash" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-500 to-emerald-500 hover:from-sky-400 hover:to-emerald-400 text-slate-950 shadow-lg transition">
+              🔬 Ejecutar Squash Vertical
+            </button>
+          </div>
+        `;
+
+        const slider = document.getElementById("slider-squash-pressure");
+        const label = document.getElementById("squash-kpa-label");
+
+        slider.addEventListener("input", e => {
+          const val = Number(e.target.value);
+          if (val >= 65 && val <= 85) {
+            label.textContent = `${val} kPa (Óptima)`;
+            label.className = "font-mono-code font-bold text-emerald-400";
+          } else if (val < 65) {
+            label.textContent = `${val} kPa (Insuficiente)`;
+            label.className = "font-mono-code font-bold text-amber-400";
+          } else {
+            label.textContent = `${val} kPa (Excesiva)`;
+            label.className = "font-mono-code font-bold text-rose-400";
+          }
+        });
+
+        document.getElementById("btn-cancel-squash").addEventListener("click", () => {
+          this.hideSpecialWidget();
+        });
+
+        document.getElementById("btn-confirm-squash").addEventListener("click", () => {
+          const pressure = Number(slider.value);
+          const s = this.samplePrep.state;
+          s.squashPerformed = true;
+          s.squashPressure = pressure;
+
+          if (pressure >= 65 && pressure <= 85) {
+            s.squashQuality = "optimal";
+            this.progress.addScore(40, `Squash vertical óptimo (${pressure} kPa): brazos cromosómicos extendidos sin fracturas`);
+            this.progress.unlockBadge("squash_master");
+          } else if (pressure < 65) {
+            s.squashQuality = "under";
+            this.progress.addScore(15, `Squash con baja presión (${pressure} kPa): extensión parcial`);
+          } else {
+            s.squashQuality = "over";
+            this.progress.addScore(10, `Squash con sobrepresión (${pressure} kPa): riesgo de fragmentación`);
+          }
+
+          this.samplePrep.sync3DVisuals();
+          this.hideSpecialWidget();
+          if (this.progress.currentStep <= 9) {
+            this.progress.advanceToStep(10);
+          }
+          this.updateSampleChecklist();
+          this.updateStepPanel();
+          this.renderInventory();
+        });
+      }
+
+      hideSpecialWidget() {
+        const backdrop = document.getElementById("special-action-backdrop");
+        if (backdrop) {
+          backdrop.classList.add("hidden");
+          backdrop.classList.remove("flex");
+        }
+      }
+
+      updateStepPanel() {
+        const stepObj = this.data.steps[this.progress.currentStep - 1];
+        if (!stepObj) return;
+
+        document.getElementById("step-stage-tag").textContent = `Etapa ${stepObj.number} / ${this.progress.maxSteps}`;
+        document.getElementById("step-title").textContent = stepObj.title;
+        document.getElementById("step-instruction").textContent = stepObj.instruction;
+        document.getElementById("guide-dialogue-box").textContent = `«${stepObj.guideNote}»`;
+        document.getElementById("hint-display-box").classList.add("hidden");
+
+        const actionBtn = document.getElementById("btn-step-action");
+        const s = this.samplePrep.state;
+
+        if (stepObj.number === 1) {
+          actionBtn.classList.remove("hidden");
+          actionBtn.textContent = "Confirmar y Continuar →";
+        } else if (stepObj.number === 5) {
+          actionBtn.classList.remove("hidden");
+          actionBtn.textContent = s.stainApplied ? "⏱️ Abrir / Completar Incubación →" : "🧪 Aplicar e Incubar Orceína →";
+        } else if (stepObj.number === 9 && s.filterBlotted && !s.squashPerformed) {
+          actionBtn.classList.remove("hidden");
+          actionBtn.textContent = "🔬 Abrir Control de Squash →";
+        } else if (stepObj.number === 10) {
+          actionBtn.classList.remove("hidden");
+          actionBtn.textContent = "✓ Confirmar y Validar Preparación →";
+        } else if (stepObj.number === 14) {
+          actionBtn.classList.remove("hidden");
+          actionBtn.textContent = "🎓 Abrir Evaluación Final →";
+        } else if (!this.progress.guidedMode) {
+          actionBtn.classList.remove("hidden");
+          actionBtn.textContent = "⚡ Montaje Rápido al Microscopio";
+        } else {
+          actionBtn.classList.add("hidden");
+        }
+      }
+
+      updateScoreAndProgress() {
+        const pct = Math.round(((this.progress.currentStep - 1) / (this.progress.maxSteps - 1)) * 100);
+        document.getElementById("step-counter-text").textContent = `Paso ${this.progress.currentStep}/${this.progress.maxSteps}`;
+        document.getElementById("progress-percent-text").textContent = `${pct}%`;
+        document.getElementById("progress-bar-fill").style.width = `${Math.max(7, pct)}%`;
+        document.getElementById("score-display").textContent = `${this.progress.score} pts`;
+      }
+
+      updateActiveToolUI(tool) {
+        const label = document.getElementById("active-tool-label");
+        const dropBtn = document.getElementById("btn-drop-tool");
+        if (tool) {
+          label.textContent = `${tool.icon} ${tool.name}`;
+          dropBtn.classList.remove("hidden");
+        } else {
+          label.textContent = "Ninguno (Mano libre)";
+          dropBtn.classList.add("hidden");
+        }
+        this.renderInventory();
+      }
+
+      updateSampleChecklist() {
+        const s = this.samplePrep.state;
+        const listEl = document.getElementById("sample-checklist");
+        const pillEl = document.getElementById("prep-quality-pill");
+        pillEl.textContent = this.samplePrep.getQualityLabel();
+
+        const items = [
+          { label: "1. Portaobjetos en zona", done: s.slidePlaced },
+          { label: "2. Glándulas salivales (NaCl 0.7%)", done: s.samplePlaced },
+          { label: "3. Tinción Orceína Aceto-Láctica 2%", done: s.stainApplied && s.stainIncubated },
+          { label: "4. Descarte seguro de residuos", done: s.wasteDisposed },
+          { label: "5. Montaje de cubreobjetos", done: s.coverslipPlaced },
+          { label: "6. Secado con papel filtro", done: s.filterBlotted },
+          { label: `7. Squash vertical (${s.squashPerformed ? s.squashPressure + ' kPa' : 'Pendiente'})`, done: s.squashPerformed },
+          { label: "8. En platina del microscopio", done: s.onMicroscopeStage }
+        ];
+
+        listEl.innerHTML = items.map(it => `
+          <div class="flex items-center justify-between py-1 px-2 rounded-lg ${it.done ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30' : 'bg-slate-900/60 text-slate-400'}">
+            <span>${it.label}</span>
+            <span class="font-mono-code font-bold">${it.done ? '✓' : '•'}</span>
+          </div>
+        `).join("");
+      }
+
+      renderInventory() {
+        const container = document.getElementById("inventory-slots");
+        if (!container) return;
+
+        const visibleItems = this.interactables.filter(it => it.id !== "wall_poster");
+        container.innerHTML = visibleItems.map(item => {
+          const isSelected = this.interactionManager && this.interactionManager.activeTool === item;
+          return `
+            <button data-tool-id="${item.id}" class="inv-slot-btn px-3 py-1.5 rounded-xl border text-left transition flex items-center gap-2 shrink-0 ${
+              isSelected
+                ? 'bg-amber-500/25 border-amber-400 text-white shadow-md shadow-amber-500/20'
+                : 'bg-slate-900/85 hover:bg-slate-800 border-slate-700/80 text-slate-200'
+            }">
+              <span class="text-base">${item.icon}</span>
+              <div>
+                <div class="text-[11px] font-bold leading-tight">${item.name}</div>
+                <div class="text-[9px] text-slate-400 font-mono-code truncate max-w-[110px]">${item.stateText}</div>
+              </div>
+            </button>
+          `;
+        }).join("");
+
+        container.querySelectorAll(".inv-slot-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const id = btn.getAttribute("data-tool-id");
+            if (this.interactionManager) {
+              this.interactionManager.selectToolById(id);
+            }
+          });
+        });
+      }
+
+      renderBadges() {
+        const grid = document.getElementById("badges-grid");
+        const counter = document.getElementById("badges-counter");
+        const unlockedCount = this.progress.badges.filter(b => b.unlocked).length;
+        counter.textContent = `${unlockedCount} / ${this.progress.badges.length}`;
+
+        grid.innerHTML = this.progress.badges.map(b => `
+          <div title="${b.title}: ${b.desc}" class="p-2 rounded-xl border text-center transition flex flex-col items-center gap-1 ${
+            b.unlocked
+              ? 'bg-amber-500/20 border-amber-400/60 text-amber-200'
+              : 'bg-slate-900/50 border-slate-800 text-slate-500 opacity-50'
+          }">
+            <span class="text-lg">${b.icon}</span>
+            <span class="text-[10px] font-semibold leading-tight line-clamp-2">${b.title}</span>
+          </div>
+        `).join("");
+      }
+
+      renderOcularChallengeList() {
+        const listEl = document.getElementById("ocular-structures-list");
+        const progEl = document.getElementById("id-challenge-progress");
+        const count = this.progress.identifiedStructures.size;
+        const total = this.data.chromosomeStructures.length;
+        progEl.textContent = `${count} / ${total}`;
+
+        listEl.innerHTML = this.data.chromosomeStructures.map(st => {
+          const done = this.progress.identifiedStructures.has(st.id);
+          return `
+            <div data-struct-id="${st.id}" class="ocular-struct-item p-2 rounded-xl border cursor-pointer transition flex items-center justify-between ${
+              done
+                ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-200'
+                : 'bg-slate-900/70 hover:bg-slate-800 border-slate-800 text-slate-300'
+            }">
+              <div>
+                <div class="font-semibold text-xs">${st.name}</div>
+                <div class="text-[10px] text-slate-400 font-mono-code">Mín: ${st.minMag}x • ${st.locus}</div>
+              </div>
+              <span class="text-xs font-bold font-mono-code ${done ? 'text-emerald-400' : 'text-slate-500'}">${done ? '✓ Identificado' : 'Ubicar'}</span>
+            </div>
+          `;
+        }).join("");
+
+        listEl.querySelectorAll(".ocular-struct-item").forEach(el => {
+          el.addEventListener("click", () => {
+            const stId = el.getAttribute("data-struct-id");
+            const st = this.data.chromosomeStructures.find(s => s.id === stId);
+            if (st) {
+              // Centrar suavemente la platina XY sobre la estructura seleccionada
+              this.microscope.stageX = -st.x;
+              this.microscope.stageY = -st.y;
+              this.microscope.selectedStructure = st;
+              if (!this.progress.identifiedStructures.has(st.id) && this.samplePrep.state.onMicroscopeStage) {
+                this.progress.identifiedStructures.add(st.id);
+                this.progress.addScore(35, `Estructura identificada: ${st.name}`);
+                if (this.progress.identifiedStructures.size >= 3 && this.progress.currentStep === 13) {
+                  this.progress.advanceToStep(14);
+                }
+                if (this.progress.identifiedStructures.size === this.data.chromosomeStructures.length) {
+                  this.progress.unlockBadge("bridges_heir");
+                }
+              }
+              this.updateOcularStructurePanel(st);
+              this.microscope.renderOcular();
+            }
+          });
+        });
+      }
+
+      updateOcularStructurePanel(struct) {
+        this.renderOcularChallengeList();
+        const card = document.getElementById("ocular-selected-structure");
+        card.classList.remove("hidden");
+        document.getElementById("struct-detail-title").textContent = struct.name;
+        document.getElementById("struct-detail-locus").textContent = struct.locus;
+        document.getElementById("struct-detail-desc").textContent = struct.description;
+      }
+
+      renderObservations() {
+        const badge = document.getElementById("obs-count-badge");
+        const container = document.getElementById("obs-list-container");
+        badge.textContent = this.progress.observations.length;
+
+        if (this.progress.observations.length === 0) {
+          container.innerHTML = `<div class="text-xs text-slate-400 italic p-4 text-center bg-slate-900/50 rounded-xl border border-slate-800">Aún no has registrado observaciones citogenéticas. Identifica estructuras en el microscopio o añade una nota arriba.</div>`;
+          return;
+        }
+
+        container.innerHTML = this.progress.observations.map(obs => `
+          <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col gap-1">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="font-bold text-teal-300">${obs.structure}</span>
+              <span class="font-mono-code text-sky-400">${obs.magnification} • ${obs.time}</span>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed">${obs.note}</p>
+          </div>
+        `).join("");
+      }
+
+      renderCodex() {
+        const container = document.getElementById("codex-content");
+        const sp = this.data.speciesInfo;
+
+        container.innerHTML = `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl">
+              <h3 class="text-sm font-bold text-sky-400 mb-2">Parámetros Citogenéticos de ${sp.scientificName}</h3>
+              <ul class="space-y-1.5 text-xs">
+                <li><strong>Tejido diana:</strong> ${sp.tissue}</li>
+                <li><strong>Dotación cromosómica:</strong> ${sp.diploidNumber}</li>
+                <li><strong>Mecanismo de politenización:</strong> ${sp.polyteneMechanism}</li>
+                <li><strong>Longitud total interfásica:</strong> ${sp.typicalLength}</li>
+              </ul>
+            </div>
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl">
+              <h3 class="text-sm font-bold text-emerald-400 mb-2">Composición de Reactivos Estándar</h3>
+              <ul class="space-y-1.5 text-xs">
+                <li><strong>Solución de Disección (Ringer):</strong> NaCl 0.7% (p/v) en agua bidestilada estéril fría (4 °C) para mantener la isotonicidad glandular.</li>
+                <li><strong>Fijador Citogenético:</strong> Ácido acético al 45% (v/v) para coagulación rápida de nucleoproteínas.</li>
+                <li><strong>Colorante Orceína Aceto-Láctica:</strong> Orceína sintética al 2% disuelta en ácido acético glacial (45%) y ácido láctico (1:1).</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl">
+            <h3 class="text-sm font-bold text-amber-400 mb-3">Comparativa Explícita: Protocolo Experimental Real vs. Simulación Educativa</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              ${this.data.protocolComparison.map(item => `
+                <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+                  <div class="font-bold text-xs text-white mb-1">${item.stage}</div>
+                  <p class="text-[11px] text-slate-300 mb-1.5"><strong class="text-sky-300">Protocolo Real:</strong> ${item.realProtocol}</p>
+                  <p class="text-[11px] text-slate-400"><strong class="text-emerald-300">Simulación 3D:</strong> ${item.simulationAdaptation}</p>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+
+          <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl">
+            <h3 class="text-sm font-bold text-indigo-400 mb-2">Referencias Bibliográficas Verificables</h3>
+            <ul class="list-disc list-inside space-y-1 text-xs text-slate-300 font-mono-code">
+              ${this.data.references.map(ref => `<li>${ref}</li>`).join("")}
+            </ul>
+          </div>
+        `;
+      }
+
+      renderEvaluationQuiz() {
+        const container = document.getElementById("quiz-questions-container");
+        container.innerHTML = this.data.quizQuestions.map((q, qIdx) => `
+          <div class="bg-slate-900/85 border border-slate-800 rounded-2xl p-4" id="quiz-block-${q.id}">
+            <p class="font-bold text-xs text-white mb-2.5">${q.question}</p>
+            <div class="space-y-1.5">
+              ${q.options.map((opt, optIdx) => `
+                <label class="flex items-start gap-2.5 p-2 rounded-xl bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 cursor-pointer text-xs text-slate-200 transition">
+                  <input type="radio" name="quiz_${q.id}" value="${optIdx}" class="mt-0.5 accent-sky-400" />
+                  <span>${opt}</span>
+                </label>
+              `).join("")}
+            </div>
+            <div id="quiz-feedback-${q.id}" class="hidden mt-2.5 p-2.5 rounded-xl text-xs"></div>
+          </div>
+        `).join("");
+      }
+
+      gradeEvaluation() {
+        let correctCount = 0;
+        const total = this.data.quizQuestions.length;
+
+        this.data.quizQuestions.forEach(q => {
+          const selected = document.querySelector(`input[name="quiz_${q.id}"]:checked`);
+          const feedbackEl = document.getElementById(`quiz-feedback-${q.id}`);
+          feedbackEl.classList.remove("hidden");
+
+          const answerIdx = selected ? Number(selected.value) : -1;
+          if (answerIdx === q.correctIndex) {
+            correctCount++;
+            feedbackEl.className = "mt-2.5 p-2.5 rounded-xl text-xs bg-emerald-950/80 border border-emerald-500/40 text-emerald-200";
+            feedbackEl.innerHTML = `<strong>✓ Correcto:</strong> ${q.explanation}`;
+          } else {
+            feedbackEl.className = "mt-2.5 p-2.5 rounded-xl text-xs bg-rose-950/80 border border-rose-500/40 text-rose-200";
+            feedbackEl.innerHTML = `<strong>✗ Revisión conceptual:</strong> ${q.explanation}`;
+          }
+        });
+
+        if (!this.progress.quizSubmitted) {
+          this.progress.quizSubmitted = true;
+          this.progress.addScore(correctCount * 30, `Evaluación calificada (${correctCount}/${total} aciertos)`);
+          if (correctCount >= 4) {
+            this.progress.unlockBadge("geneticist");
+          }
+        }
+
+        const summaryPanel = document.getElementById("evaluation-summary-panel");
+        summaryPanel.classList.remove("hidden");
+        const pct = Math.round((correctCount / total) * 100);
+
+        summaryPanel.innerHTML = `
+          <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-3 mb-3">
+            <div>
+              <span class="text-[11px] font-mono-code uppercase text-emerald-400">Informe Final de Competencias</span>
+              <h3 class="text-lg font-extrabold text-white">Calificación Científica: ${pct}% (${correctCount}/${total} respuestas correctas)</h3>
+            </div>
+            <div class="text-right">
+              <div class="text-xs text-slate-400">Puntuación Total Acumulada</div>
+              <div class="text-xl font-mono-code font-bold text-amber-300">${this.progress.score} pts</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+            <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+              <div class="text-sky-400 font-bold mb-1">Calidad del Squash</div>
+              <div class="text-slate-200">${this.samplePrep.getQualityLabel()}</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+              <div class="text-emerald-400 font-bold mb-1">Estructuras Identificadas</div>
+              <div class="text-slate-200">${this.progress.identifiedStructures.size} / ${this.data.chromosomeStructures.length} loci mapeados</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+              <div class="text-amber-400 font-bold mb-1">Insignias Desbloqueadas</div>
+              <div class="text-slate-200">${this.progress.badges.filter(b => b.unlocked).length} / ${this.progress.badges.length} competencias</div>
+            </div>
+          </div>
+        `;
+      }
+
+      showTooltip(x, y, title, desc, stateText) {
+        this.tooltipEl.classList.remove("hidden");
+        const pad = 16;
+        const left = Math.min(window.innerWidth - 310, x + pad);
+        const top = Math.min(window.innerHeight - 130, y + pad);
+        this.tooltipEl.style.left = `${left}px`;
+        this.tooltipEl.style.top = `${top}px`;
+        document.getElementById("tooltip-title").textContent = title;
+        document.getElementById("tooltip-desc").textContent = desc;
+        document.getElementById("tooltip-state").textContent = stateText;
+      }
+
+      hideTooltip() {
+        this.tooltipEl.classList.add("hidden");
+      }
+
+      showToast(message, type = "info") {
+        const colors = {
+          info: "bg-slate-900/95 border-sky-500/50 text-sky-200",
+          success: "bg-emerald-950/95 border-emerald-500/50 text-emerald-200",
+          warning: "bg-amber-950/95 border-amber-500/50 text-amber-200",
+          error: "bg-rose-950/95 border-rose-500/50 text-rose-200"
+        };
+        const toast = document.createElement("div");
+        toast.className = `px-4 py-2 rounded-xl border text-xs font-medium shadow-xl transition-all duration-300 ${colors[type] || colors.info}`;
+        toast.textContent = message;
+        this.toastContainer.appendChild(toast);
+
+        setTimeout(() => {
+          toast.style.opacity = "0";
+          setTimeout(() => toast.remove(), 300);
+        }, 3600);
+      }
+
+      openModal(id) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.remove("hidden");
+          el.classList.add("flex");
+        }
+      }
+
+      closeModal(id) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.add("hidden");
+          el.classList.remove("flex");
+        }
+      }
+    }
+
+    // ============================================================================
+    // MÓDULO 10: LabManager (+ Empaquetador ZIP para Visual Studio Code / Vite)
+    // Construye la escena 3D del laboratorio, instancia todos los instrumentos,
+    // conecta los 10 módulos, ejecuta el bucle de renderizado y exporta el .ZIP.
+    // ============================================================================
+    class LabManager {
+      constructor() {
+        this.canvas = document.getElementById("three-canvas");
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x070d19);
+        this.scene.fog = new THREE.FogExp2(0x070d19, 0.065);
+
+        this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 50);
+        this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        this.interactables = [];
+        this.dropZones = [];
+        this.visualRefs = {};
+        this.turretMeshGroup = null;
+
+        // Instanciar gestores de datos y progreso
+        this.scientificData = new ScientificDataManager();
+        this.progress = new ProgressManager(this.scientificData);
+
+        // Construir laboratorio 3D e instrumental
+        this.setupLights();
+        this.buildLabEnvironment();
+        this.buildLabInstruments();
+
+        // Instanciar controladores restantes e integrarlos
+        this.samplePrep = new SamplePreparationManager(this.progress, this.visualRefs);
+        this.cameraController = new CameraController(this.camera, this.canvas);
+        this.microscope = new MicroscopioController(this.scientificData, this.samplePrep, this.progress, this.turretMeshGroup);
+        this.ui = new UIManager({
+          scientificData: this.scientificData,
+          progress: this.progress,
+          samplePrep: this.samplePrep,
+          cameraController: this.cameraController,
+          microscope: this.microscope
+        });
+        this.interactionManager = new InteractionManager({
+          camera: this.camera,
+          domElement: this.canvas,
+          interactables: this.interactables,
+          dropZones: this.dropZones,
+          samplePrep: this.samplePrep,
+          progress: this.progress,
+          microscope: this.microscope,
+          ui: this.ui
+        });
+
+        this.ui.bindInteractionManager(this.interactionManager, this.interactables);
+        this.initResizeAndExportEvents();
+      }
+
+      setupLights() {
+        const ambient = new THREE.AmbientLight(0xdbeafe, 0.68);
+        this.scene.add(ambient);
+
+        const mainLight = new THREE.DirectionalLight(0xffffff, 0.95);
+        mainLight.position.set(2.5, 4.8, 3.2);
+        mainLight.castShadow = true;
+        mainLight.shadow.mapSize.width = 2048;
+        mainLight.shadow.mapSize.height = 2048;
+        mainLight.shadow.camera.near = 0.5;
+        mainLight.shadow.camera.far = 12;
+        this.scene.add(mainLight);
+
+        const benchLight = new THREE.PointLight(0x38bdf8, 0.55, 6);
+        benchLight.position.set(0, 2.2, 0.2);
+        this.scene.add(benchLight);
+      }
+
+      buildLabEnvironment() {
+        // Suelo del laboratorio
+        const floorGeo = new THREE.PlaneGeometry(16, 16);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.8, metalness: 0.1 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        this.scene.add(floor);
+
+        // Pared posterior científica
+        const wallGeo = new THREE.PlaneGeometry(14, 6);
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7 });
+        const backWall = new THREE.Mesh(wallGeo, wallMat);
+        backWall.position.set(0, 3, -2.2);
+        backWall.receiveShadow = true;
+        this.scene.add(backWall);
+
+        // Mesa principal de laboratorio (resina epoxi negra)
+        const benchGroup = new THREE.Group();
+        const topGeo = new THREE.BoxGeometry(4.2, 0.12, 2.1);
+        const topMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.15 });
+        const benchTop = new THREE.Mesh(topGeo, topMat);
+        benchTop.position.set(0, 0.88, 0);
+        benchTop.castShadow = true;
+        benchTop.receiveShadow = true;
+        benchGroup.add(benchTop);
+
+        // Patas metálicas de la mesa
+        const legGeo = new THREE.BoxGeometry(0.12, 0.84, 0.12);
+        const legMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.4 });
+        [
+          [-1.9, 0.42, -0.85],
+          [1.9, 0.42, -0.85],
+          [-1.9, 0.42, 0.85],
+          [1.9, 0.42, 0.85]
+        ].forEach(([lx, ly, lz]) => {
+          const leg = new THREE.Mesh(legGeo, legMat);
+          leg.position.set(lx, ly, lz);
+          benchGroup.add(leg);
+        });
+        this.scene.add(benchGroup);
+
+        // Bandeja de reactivos de acero inoxidable (izquierda)
+        const trayGeo = new THREE.BoxGeometry(1.15, 0.03, 0.85);
+        const trayMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.25 });
+        const reagentTray = new THREE.Mesh(trayGeo, trayMat);
+        reagentTray.position.set(-1.12, 0.955, -0.05);
+        reagentTray.receiveShadow = true;
+        this.scene.add(reagentTray);
+
+        // Póster científico mural interactivo (Mapa de Bridges)
+        const posterGroup = new THREE.Group();
+        const frameMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(1.9, 1.05, 0.04),
+          new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4 })
+        );
+        const boardMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(1.82, 0.97, 0.05),
+          new THREE.MeshStandardMaterial({ color: 0x0f172a, emissive: 0x0c4a6e, emissiveIntensity: 0.25 })
+        );
+        posterGroup.add(frameMesh, boardMesh);
+        posterGroup.position.set(-0.6, 2.25, -2.16);
+        this.scene.add(posterGroup);
+
+        this.interactables.push(new Interactable({
+          id: "wall_poster",
+          name: "Panel Científico: Mapa de C.B. Bridges (1935)",
+          icon: "📊",
+          description: "Diagrama citogenético de referencia de los cromosomas politénicos de Drosophila melanogaster.",
+          stateText: "Clic para abrir Base Científica",
+          meshGroup: posterGroup,
+          homePosition: posterGroup.position,
+          canPickUp: false
+        }));
+      }
+
+      buildLabInstruments() {
+        const surfaceY = 0.94;
+
+        // ==================== DROPZONE 1: ZONA DE PREPARACIÓN CENTRAL ====================
+        const prepZoneGroup = new THREE.Group();
+        const prepMatMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.75, 0.012, 0.52),
+          new THREE.MeshStandardMaterial({
+            color: 0x0f172a,
+            emissive: 0x0284c7,
+            emissiveIntensity: 0.2,
+            roughness: 0.4
+          })
+        );
+        prepZoneGroup.add(prepMatMesh);
+        prepZoneGroup.position.set(0.0, surfaceY + 0.006, 0.22);
+        this.scene.add(prepZoneGroup);
+
+        this.dropZones.push(new DropZone({
+          id: "zone_prep",
+          name: "Zona de Preparación Citogenética",
+          description: "Superficie central para colocar el portaobjetos, depositar las glándulas salivales, teñir con orceína y ejecutar el Squash.",
+          position: prepZoneGroup.position,
+          mesh: prepZoneGroup,
+          acceptedIds: ["slide", "biosample", "pipette", "stain_bottle", "coverslip", "filter_paper", "squash_tool"]
+        }));
+
+        // Grupo 3D dinámico del Portaobjetos en la Zona de Preparación
+        const prepSlideGroup = new THREE.Group();
+        const slideGlassMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.32, 0.01, 0.12),
+          new THREE.MeshStandardMaterial({ color: 0xe0f2fe, transparent: true, opacity: 0.72, roughness: 0.1 })
+        );
+        const glandTissueMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.022, 16, 12),
+          new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.3 })
+        );
+        glandTissueMesh.position.set(0, 0.01, 0);
+
+        const stainDropMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.036, 0.036, 0.008, 24),
+          new THREE.MeshStandardMaterial({ color: 0xbe123c, transparent: true, opacity: 0.85, roughness: 0.2 })
+        );
+        stainDropMesh.position.set(0, 0.012, 0);
+
+        const mountedCoverslipMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, 0.004, 0.1),
+          new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 })
+        );
+        mountedCoverslipMesh.position.set(0, 0.017, 0);
+
+        prepSlideGroup.add(slideGlassMesh, glandTissueMesh, stainDropMesh, mountedCoverslipMesh);
+        prepSlideGroup.position.set(0.0, surfaceY + 0.02, 0.22);
+        prepSlideGroup.visible = false;
+        this.scene.add(prepSlideGroup);
+
+        this.visualRefs.prepSlideGroup = prepSlideGroup;
+        this.visualRefs.glandTissueMesh = glandTissueMesh;
+        this.visualRefs.stainDropMesh = stainDropMesh;
+        this.visualRefs.mountedCoverslipMesh = mountedCoverslipMesh;
+
+        // Registrar el portaobjetos preparado como interactuable para poder trasladarlo al microscopio en el Paso 11
+        this.interactables.push(new Interactable({
+          id: "prepared_slide",
+          name: "Portaobjetos en Zona de Preparación",
+          icon: "🧫",
+          description: "Lámina citogenética sobre la alfombrilla de trabajo.",
+          stateText: "En preparación",
+          meshGroup: prepSlideGroup,
+          homePosition: prepSlideGroup.position
+        }));
+
+        // ==================== INSTRUMENTO 1: PORTAOBJETOS LIMPIO ====================
+        const slideGroup = new THREE.Group();
+        const slideBase = new THREE.Mesh(
+          new THREE.BoxGeometry(0.3, 0.014, 0.11),
+          new THREE.MeshStandardMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.78, roughness: 0.15 })
+        );
+        slideGroup.add(slideBase);
+        slideGroup.position.set(-0.55, surfaceY + 0.015, 0.45);
+        this.scene.add(slideGroup);
+
+        this.interactables.push(new Interactable({
+          id: "slide",
+          name: "Portaobjetos de Vidrio (76×26 mm)",
+          icon: "▭",
+          description: "Lámina portaobjetos desengrasada para montaje citogenético.",
+          stateText: "Limpio y seco",
+          meshGroup: slideGroup,
+          homePosition: slideGroup.position
+        }));
+
+        // ==================== INSTRUMENTO 2: MUESTRA BIOLÓGICA (GLÁNDULAS SALIVALES) ====================
+        const bioGroup = new THREE.Group();
+        const dishMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.16, 0.16, 0.03, 28),
+          new THREE.MeshStandardMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.65 })
+        );
+        const ringerLiquid = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.145, 0.145, 0.014, 24),
+          new THREE.MeshStandardMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.55 })
+        );
+        const glandSample1 = new THREE.Mesh(
+          new THREE.SphereGeometry(0.022, 12, 12),
+          new THREE.MeshStandardMaterial({ color: 0xfde68a })
+        );
+        glandSample1.position.set(-0.02, 0.01, 0);
+        const glandSample2 = glandSample1.clone();
+        glandSample2.position.set(0.025, 0.01, 0.015);
+        bioGroup.add(dishMesh, ringerLiquid, glandSample1, glandSample2);
+        bioGroup.position.set(-0.98, surfaceY + 0.03, 0.18);
+        this.scene.add(bioGroup);
+
+        this.interactables.push(new Interactable({
+          id: "biosample",
+          name: "Muestra Biológica (Glándulas Salivales)",
+          icon: "🧬",
+          description: "Par de glándulas salivales de larva de 3er estadio de D. melanogaster en solución isotónica de Ringer (NaCl 0.7%).",
+          stateText: "En solución Ringer 0.7%",
+          meshGroup: bioGroup,
+          homePosition: bioGroup.position
+        }));
+
+        // ==================== INSTRUMENTO 3: FRASCO DE TINCIÓN (ORCEÍNA ACETO-LÁCTICA) ====================
+        const bottleGroup = new THREE.Group();
+        const bottleBody = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.09, 0.09, 0.24, 24),
+          new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.25, metalness: 0.1 })
+        );
+        bottleBody.position.y = 0.12;
+        const bottleCap = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.05, 0.05, 0.07, 20),
+          new THREE.MeshStandardMaterial({ color: 0xbe123c, roughness: 0.4 })
+        );
+        bottleCap.position.y = 0.265;
+        bottleGroup.add(bottleBody, bottleCap);
+        bottleGroup.position.set(-1.32, surfaceY + 0.015, -0.22);
+        this.scene.add(bottleGroup);
+
+        this.interactables.push(new Interactable({
+          id: "stain_bottle",
+          name: "Frasco de Orceína Aceto-Láctica (2%)",
+          icon: "🧪",
+          description: "Reactivo de fijación y tinción cromosómica (Orceína 2% en ácido acético glacial 45% + ácido láctico).",
+          stateText: "Concentración 2% lista",
+          meshGroup: bottleGroup,
+          homePosition: bottleGroup.position
+        }));
+
+        // ==================== INSTRUMENTO 4: MICROPIPETA DE PRECISIÓN ====================
+        const pipetteGroup = new THREE.Group();
+        const handleMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.022, 0.02, 0.22, 16),
+          new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.3 })
+        );
+        const tipMesh = new THREE.Mesh(
+          new THREE.ConeGeometry(0.015, 0.1, 16),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, transparent: true, opacity: 0.85 })
+        );
+        tipMesh.rotation.x = Math.PI;
+        tipMesh.position.y = -0.15;
+        pipetteGroup.add(handleMesh, tipMesh);
+        pipetteGroup.rotation.z = Math.PI / 2.2;
+        pipetteGroup.position.set(-0.92, surfaceY + 0.06, -0.25);
+        this.scene.add(pipetteGroup);
+
+        this.interactables.push(new Interactable({
+          id: "pipette",
+          name: "Micropipeta de Precisión (10–100 µL)",
+          icon: "💉",
+          description: "Permite aspirar 25 µL de Orceína Aceto-Láctica del frasco y depositarlos sobre las glándulas salivales.",
+          stateText: "Punta estéril colocada",
+          meshGroup: pipetteGroup,
+          homePosition: pipetteGroup.position
+        }));
+
+        // ==================== INSTRUMENTO 5: CAJA DE CUBREOBJETOS ====================
+        const coverslipGroup = new THREE.Group();
+        const boxBase = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 0.03, 0.16),
+          new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.35 })
+        );
+        const glassSlip = new THREE.Mesh(
+          new THREE.BoxGeometry(0.11, 0.006, 0.11),
+          new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 })
+        );
+        glassSlip.position.y = 0.02;
+        coverslipGroup.add(boxBase, glassSlip);
+        coverslipGroup.position.set(-0.55, surfaceY + 0.015, 0.12);
+        this.scene.add(coverslipGroup);
+
+        this.interactables.push(new Interactable({
+          id: "coverslip",
+          name: "Cubreobjetos de Cuarzo (22×22 mm)",
+          icon: "⬜",
+          description: "Laminilla delgada N° 1.5 para cubrir la preparación teñida antes del aplastamiento.",
+          stateText: "Caja abierta",
+          meshGroup: coverslipGroup,
+          homePosition: coverslipGroup.position
+        }));
+
+        // ==================== INSTRUMENTO 6: PAPEL FILTRO WHATMAN ====================
+        const filterGroup = new THREE.Group();
+        const paperDisk = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.13, 0.13, 0.012, 28),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.9 })
+        );
+        filterGroup.add(paperDisk);
+        filterGroup.position.set(0.55, surfaceY + 0.01, 0.42);
+        this.scene.add(filterGroup);
+
+        this.interactables.push(new Interactable({
+          id: "filter_paper",
+          name: "Papel Filtro Absorbente (Whatman N° 1)",
+          icon: "🧻",
+          description: "Absorbe por capilaridad el exceso de Orceína Aceto-Láctica alrededor del cubreobjetos.",
+          stateText: "Seco y limpio",
+          meshGroup: filterGroup,
+          homePosition: filterGroup.position
+        }));
+
+        // ==================== INSTRUMENTO 7: PRENSA-SQUASH / AGUJA HISTOLÓGICA ====================
+        const squashGroup = new THREE.Group();
+        const rodMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.016, 0.016, 0.26, 16),
+          new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.4, roughness: 0.3 })
+        );
+        const rubberTip = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.032, 0.032, 0.03, 20),
+          new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.7 })
+        );
+        rubberTip.position.y = -0.13;
+        squashGroup.add(rodMesh, rubberTip);
+        squashGroup.rotation.z = Math.PI / 2;
+        squashGroup.position.set(0.55, surfaceY + 0.03, 0.12);
+        this.scene.add(squashGroup);
+
+        this.interactables.push(new Interactable({
+          id: "squash_tool",
+          name: "Aplicador de Presión Vertical (Squash)",
+          icon: "🔨",
+          description: "Instrumento de punta roma para ejercer presión vertical controlada (65–85 kPa) sin desplazamiento lateral.",
+          stateText: "Calibrado",
+          meshGroup: squashGroup,
+          homePosition: squashGroup.position
+        }));
+
+        // ==================== INSTRUMENTO 8 & DROPZONE 2: CONTENEDOR DE RESIDUOS ====================
+        const wasteGroup = new THREE.Group();
+        const binBody = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.14, 0.11, 0.28, 24),
+          new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35 })
+        );
+        binBody.position.y = 0.14;
+        const binRim = new THREE.Mesh(
+          new THREE.TorusGeometry(0.14, 0.015, 12, 24),
+          new THREE.MeshStandardMaterial({ color: 0x1e293b })
+        );
+        binRim.rotation.x = Math.PI / 2;
+        binRim.position.y = 0.28;
+        wasteGroup.add(binBody, binRim);
+        wasteGroup.position.set(0.62, surfaceY, -0.42);
+        this.scene.add(wasteGroup);
+
+        this.interactables.push(new Interactable({
+          id: "waste_bin",
+          name: "Recipiente de Residuos Biológicos",
+          icon: "🗑️",
+          description: "Contenedor rígido de bioseguridad para descartar puntas de pipeta con restos de colorante ácido.",
+          stateText: "Activo para descarte",
+          meshGroup: wasteGroup,
+          homePosition: wasteGroup.position,
+          canPickUp: false
+        }));
+
+        this.dropZones.push(new DropZone({
+          id: "zone_waste",
+          name: "Zona de Descarte Bioseguro",
+          description: "Deposita aquí las puntas de pipeta usadas.",
+          position: wasteGroup.position,
+          mesh: wasteGroup,
+          acceptedIds: ["pipette"]
+        }));
+
+        // ==================== INSTRUMENTO 9 & DROPZONE 3: MICROSCOPIO ÓPTICO COMPUESTO ====================
+        const microGroup = new THREE.Group();
+        const metalDark = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.6, roughness: 0.3 });
+        const metalEnamel = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, metalness: 0.25, roughness: 0.35 });
+
+        // Base del microscopio
+        const baseMesh = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.07, 0.56), metalDark);
+        baseMesh.position.y = 0.035;
+        microGroup.add(baseMesh);
+
+        // Fuente de iluminación LED en la base
+        const condenserLight = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.065, 0.075, 0.03, 24),
+          new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x38bdf8, emissiveIntensity: 0.7 })
+        );
+        condenserLight.position.set(0, 0.08, 0.06);
+        microGroup.add(condenserLight);
+
+        // Brazo curvo
+        const armMesh = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.56, 0.12), metalEnamel);
+        armMesh.position.set(0, 0.34, -0.17);
+        microGroup.add(armMesh);
+
+        // Platina mecánica XY
+        const stageMesh = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.025, 0.34), metalDark);
+        stageMesh.position.set(0, 0.31, 0.04);
+        microGroup.add(stageMesh);
+
+        // Portaobjetos colocado sobre la platina del microscopio
+        const stageSlideGroup = new THREE.Group();
+        const stSlide = new THREE.Mesh(
+          new THREE.BoxGeometry(0.24, 0.008, 0.09),
+          new THREE.MeshStandardMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.8 })
+        );
+        const stSpot = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.025, 0.025, 0.01, 16),
+          new THREE.MeshStandardMaterial({ color: 0x881337 })
+        );
+        stageSlideGroup.add(stSlide, stSpot);
+        stageSlideGroup.position.set(0, 0.328, 0.04);
+        stageSlideGroup.visible = false;
+        microGroup.add(stageSlideGroup);
+        this.visualRefs.stageSlideGroup = stageSlideGroup;
+
+        // Revólver giratorio con 3 objetivos (10x amarillo, 40x azul, 100x blanco)
+        const turretGroup = new THREE.Group();
+        const nosepiece = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.03, 24), metalDark);
+        turretGroup.add(nosepiece);
+
+        const objSpecs = [
+          { angle: 0, color: 0xfacc15, len: 0.08 },
+          { angle: (Math.PI * 2) / 3, color: 0x38bdf8, len: 0.105 },
+          { angle: (Math.PI * 4) / 3, color: 0xf8fafc, len: 0.12 }
+        ];
+        objSpecs.forEach(spec => {
+          const objMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.016, 0.013, spec.len, 16),
+            new THREE.MeshStandardMaterial({ color: spec.color, metalness: 0.5 })
+          );
+          objMesh.position.set(Math.sin(spec.angle) * 0.045, -spec.len / 2, Math.cos(spec.angle) * 0.045);
+          turretGroup.add(objMesh);
+        });
+        turretGroup.position.set(0, 0.48, 0.04);
+        microGroup.add(turretGroup);
+        this.turretMeshGroup = turretGroup;
+
+        // Cabezal binocular y oculares
+        const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.24), metalEnamel);
+        headMesh.position.set(0, 0.58, -0.02);
+        microGroup.add(headMesh);
+
+        [-0.045, 0.045].forEach(ox => {
+          const ocularTube = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.14, 16), metalDark);
+          ocularTube.rotation.x = Math.PI / 5;
+          ocularTube.position.set(ox, 0.67, 0.08);
+          microGroup.add(ocularTube);
+        });
+
+        microGroup.position.set(1.22, surfaceY, -0.06);
+        this.scene.add(microGroup);
+
+        this.interactables.push(new Interactable({
+          id: "microscope",
+          name: "Microscopio Óptico Compuesto (10x / 40x / 100x)",
+          icon: "🔬",
+          description: "Microscopio trinocular de campo claro. Haz clic para abrir la Vista Ocular interactiva.",
+          stateText: "Iluminación LED activa",
+          meshGroup: microGroup,
+          homePosition: microGroup.position,
+          canPickUp: false
+        }));
+
+        this.dropZones.push(new DropZone({
+          id: "zone_stage",
+          name: "Platina Mecánica XY del Microscopio",
+          description: "Coloca aquí el portaobjetos validado para observar los cromosomas politénicos.",
+          position: new THREE.Vector3(1.22, surfaceY + 0.32, -0.02),
+          mesh: stageMesh,
+          acceptedIds: ["prepared_slide", "slide"]
+        }));
+      }
+
+      resetPractice() {
+        this.microscope.exitMicroscope();
+        this.ui.hideSpecialWidget();
+        this.interactionManager.releaseActiveTool();
+        this.progress.reset();
+        this.samplePrep.reset();
+
+        this.interactables.forEach(item => {
+          item.meshGroup.visible = item.id !== "prepared_slide";
+          item.returnHome();
+        });
+        this.samplePrep.sync3DVisuals();
+
+        this.ui.renderBadges();
+        this.ui.renderInventory();
+        this.ui.updateStepPanel();
+        this.ui.updateSampleChecklist();
+        this.ui.updateScoreAndProgress();
+        this.ui.renderOcularChallengeList();
+        this.ui.renderObservations();
+        this.ui.renderEvaluationQuiz();
+        document.getElementById("evaluation-summary-panel").classList.add("hidden");
+        document.getElementById("ocular-selected-structure").classList.add("hidden");
+        this.cameraController.transitionToPreset("overview");
+        this.ui.showToast("Práctica reiniciada por completo. Todos los instrumentos han vuelto a su estado inicial.", "info");
+      }
+
+      runSelfDiagnostics() {
+        const checks = [
+          { name: "Contexto WebGL y Three.js r128", ok: !!this.renderer && !!this.scene },
+          { name: "10 Módulos de Arquitectura Conectados", ok: !!(this.scientificData && this.progress && this.samplePrep && this.cameraController && this.microscope && this.interactionManager && this.ui) },
+          { name: `Instrumentos 3D Interactivos (${this.interactables.length})`, ok: this.interactables.length >= 9 },
+          { name: `Zonas de Validación DropZone (${this.dropZones.length})`, ok: this.dropZones.length === 3 },
+          { name: "Microscopio Ocular 2D + 3 Objetivos (10x, 40x, 100x)", ok: !!this.microscope.ctx },
+          { name: `Banco de Evaluación Científica (${this.scientificData.quizQuestions.length} preguntas)`, ok: this.scientificData.quizQuestions.length === 5 }
+        ];
+        const allOk = checks.every(c => c.ok);
+        this.ui.showToast(
+          allOk
+            ? "✓ Autodiagnóstico completado: 6/6 subsistemas verificados sin errores."
+            : "⚠️ Se detectó una advertencia en el autodiagnóstico.",
+          allOk ? "success" : "warning"
+        );
+      }
+
+      initResizeAndExportEvents() {
+        window.addEventListener("resize", () => {
+          this.camera.aspect = window.innerWidth / window.innerHeight;
+          this.camera.updateProjectionMatrix();
+          this.renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        const exportHandler = () => this.exportVSCodeViteZip();
+        document.getElementById("btn-export-zip").addEventListener("click", exportHandler);
+        document.getElementById("btn-menu-download-zip").addEventListener("click", exportHandler);
+        document.getElementById("btn-menu-diagnostics").addEventListener("click", () => this.runSelfDiagnostics());
+      }
+
+      // Generador nativo de archivo .ZIP (sin dependencias externas) con estructura lista para VS Code + Vite
+      exportVSCodeViteZip() {
+        const htmlSource = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+        const pkgJson = JSON.stringify({
+          name: "biolab-3d-drosophila-polytene",
+          version: "1.0.0",
+          private: true,
+          description: "Laboratorio Virtual 3D de Biología Molecular y Citogenética: Cromosomas Politénicos de Drosophila melanogaster",
+          scripts: {
+            dev: "vite",
+            build: "vite build",
+            preview: "vite preview"
+          },
+          devDependencies: {
+            vite: "^5.4.0"
+          }
+        }, null, 2);
+
+        const viteConfig = `import { defineConfig } from 'vite';\nexport default defineConfig({\n  server: { port: 5173, open: true }\n});\n`;
+
+        const readmeMd = `# BioLab 3D — Cromosomas Politénicos de Drosophila melanogaster\n\nLaboratorio virtual 3D interactivo desarrollado con **JavaScript (ES6+)**, **Three.js**, **HTML5/Tailwind CSS** y **Vite** para ejecución directa desde **Visual Studio Code**.\n\n## Requisitos Mínimos\n- Node.js 18+ instalado\n- Visual Studio Code\n- Navegador web moderno con soporte WebGL\n\n## Comandos de Ejecución en Visual Studio Code\n\`\`\`bash\nnpm install\nnpm run dev\n\`\`\`\n`;
+
+        const files = [
+          { name: "index.html", content: htmlSource },
+          { name: "package.json", content: pkgJson },
+          { name: "vite.config.js", content: viteConfig },
+          { name: "README.md", content: readmeMd }
+        ];
+
+        const zipBlob = this.buildZipBlob(files);
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "biolab-3d-drosophila-vscode-vite.zip";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        this.ui.showToast("📦 Archivo biolab-3d-drosophila-vscode-vite.zip generado y descargado.", "success");
+      }
+
+      buildZipBlob(files) {
+        const encoder = new TextEncoder();
+        const fileRecords = [];
+        let offset = 0;
+
+        const crcTable = new Uint32Array(256);
+        for (let n = 0; n < 256; n++) {
+          let c = n;
+          for (let k = 0; k < 8; k++) {
+            c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          }
+          crcTable[n] = c;
+        }
+        const crc32 = bytes => {
+          let crc = 0xffffffff;
+          for (let i = 0; i < bytes.length; i++) {
+            crc = crcTable[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+          }
+          return (crc ^ 0xffffffff) >>> 0;
+        };
+
+        const localChunks = [];
+        files.forEach(f => {
+          const nameBytes = encoder.encode(f.name);
+          const dataBytes = encoder.encode(f.content);
+          const crc = crc32(dataBytes);
+
+          const localHeader = new Uint8Array(30 + nameBytes.length);
+          const view = new DataView(localHeader.buffer);
+          view.setUint32(0, 0x04034b50, true);
+          view.setUint16(4, 20, true);
+          view.setUint16(6, 0, true);
+          view.setUint16(8, 0, true);
+          view.setUint16(10, 0, true);
+          view.setUint16(12, 0, true);
+          view.setUint32(14, crc, true);
+          view.setUint32(18, dataBytes.length, true);
+          view.setUint32(22, dataBytes.length, true);
+          view.setUint16(26, nameBytes.length, true);
+          view.setUint16(28, 0, true);
+          localHeader.set(nameBytes, 30);
+
+          fileRecords.push({ nameBytes, dataBytes, crc, offset });
+          localChunks.push(localHeader, dataBytes);
+          offset += localHeader.length + dataBytes.length;
+        });
+
+        const centralChunks = [];
+        let centralSize = 0;
+        fileRecords.forEach(rec => {
+          const centralHeader = new Uint8Array(46 + rec.nameBytes.length);
+          const view = new DataView(centralHeader.buffer);
+          view.setUint32(0, 0x02014b50, true);
+          view.setUint16(4, 20, true);
+          view.setUint16(6, 20, true);
+          view.setUint16(8, 0, true);
+          view.setUint16(10, 0, true);
+          view.setUint16(12, 0, true);
+          view.setUint16(14, 0, true);
+          view.setUint32(16, rec.crc, true);
+          view.setUint32(20, rec.dataBytes.length, true);
+          view.setUint32(24, rec.dataBytes.length, true);
+          view.setUint16(28, rec.nameBytes.length, true);
+          view.setUint16(30, 0, true);
+          view.setUint16(32, 0, true);
+          view.setUint16(34, 0, true);
+          view.setUint16(36, 0, true);
+          view.setUint32(38, 0, true);
+          view.setUint32(42, rec.offset, true);
+          centralHeader.set(rec.nameBytes, 46);
+          centralChunks.push(centralHeader);
+          centralSize += centralHeader.length;
+        });
+
+        const endRecord = new Uint8Array(22);
+        const endView = new DataView(endRecord.buffer);
+        endView.setUint32(0, 0x06054b50, true);
+        endView.setUint16(4, 0, true);
+        endView.setUint16(6, 0, true);
+        endView.setUint16(8, fileRecords.length, true);
+        endView.setUint16(10, fileRecords.length, true);
+        endView.setUint32(12, centralSize, true);
+        endView.setUint32(16, offset, true);
+        endView.setUint16(20, 0, true);
+
+        return new Blob([...localChunks, ...centralChunks, endRecord], { type: "application/zip" });
+      }
+
+      animate(now = performance.now()) {
+        requestAnimationFrame(t => this.animate(t));
+        this.cameraController.update();
+        this.interactionManager.updateAnimations(now);
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+
+    // Iniciar la aplicación al cargar la ventana
+    window.onload = function () {
+      window.labApp = new LabManager();
+      window.labApp.animate();
+    };
+  </script>
+</body>
+</html>
